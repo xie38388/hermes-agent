@@ -29,6 +29,7 @@ Usage:
 """
 
 import json
+import base64
 import logging
 import os
 import datetime
@@ -37,6 +38,7 @@ import uuid
 from typing import Dict, Any, Optional, Union
 from urllib.parse import urlencode
 import fal_client
+import requests
 from tools.debug_helpers import DebugSession
 from tools.managed_tool_gateway import resolve_managed_tool_gateway
 from tools.tool_backend_helpers import managed_nous_tools_enabled
@@ -349,6 +351,156 @@ def _upscale_image(image_url: str, original_prompt: str) -> Dict[str, Any]:
         return None
 
 
+
+# ---------------------------------------------------------------------------
+# OpenRouter GPT-5.4 Image 2 backend
+# ---------------------------------------------------------------------------
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_IMAGE_MODEL = "openai/gpt-5.4-image-2"
+
+
+def _upload_base64_image(data_url: str) -> Optional[str]:
+    """
+    Upload a base64 data URL image to Fal.ai CDN and return an HTTP URL.
+    Falls back to returning the data URL if upload fails.
+    """
+    try:
+        # Parse data URL: data:image/png;base64,iVBOR...
+        header, b64data = data_url.split(",", 1)
+        # Extract mime type
+        mime = header.split(":")[1].split(";")[0] if ":" in header else "image/png"
+        img_bytes = base64.b64decode(b64data)
+        logger.info("Decoded base64 image: %d bytes, mime=%s", len(img_bytes), mime)
+
+        # Try uploading via fal_client
+        try:
+            url = fal_client.upload(img_bytes, content_type=mime)
+            if url:
+                logger.info("Uploaded to Fal CDN: %s", url[:80])
+                return url
+        except Exception as e:
+            logger.warning("Fal upload failed: %s", e)
+
+        # Fallback: save to temp file and return local path (not ideal but functional)
+        import tempfile
+        ext = mime.split("/")[-1] if "/" in mime else "png"
+        tmp = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False, dir="/tmp")
+        tmp.write(img_bytes)
+        tmp.close()
+        logger.info("Saved image locally: %s", tmp.name)
+        return tmp.name
+
+    except Exception as e:
+        logger.warning("Failed to process base64 image: %s", e)
+        return None
+
+
+def _generate_via_openrouter(prompt: str, aspect_ratio: str = "landscape") -> Optional[str]:
+    """
+    Generate an image via OpenRouter using GPT-5.4 Image 2.
+
+    GPT-5.4 Image 2 response format:
+    - message.content is None
+    - message.images contains the generated images as base64 data URLs
+    - Format: [{"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}]
+
+    Returns the image URL on success, or None on failure.
+    """
+    api_key = os.getenv("OPENROUTER_API_KEY", "")
+    if not api_key:
+        return None
+
+    # Build size hint for the prompt based on aspect ratio
+    size_hints = {
+        "landscape": "wide landscape format (16:9)",
+        "square": "square format (1:1)",
+        "portrait": "tall portrait format (9:16)",
+    }
+    size_hint = size_hints.get(aspect_ratio, "landscape format")
+    enhanced_prompt = f"{prompt}. Generate the image in {size_hint}."
+
+    try:
+        logger.info("Generating image via OpenRouter GPT-5.4 Image 2...")
+        logger.info("  Model: %s", OPENROUTER_IMAGE_MODEL)
+        logger.info("  Prompt: %s", prompt[:80])
+
+        resp = requests.post(
+            OPENROUTER_API_URL,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            json={
+                "model": OPENROUTER_IMAGE_MODEL,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": enhanced_prompt},
+                        ],
+                    }
+                ],
+            },
+            timeout=300,
+        )
+
+        if resp.status_code != 200:
+            logger.warning("OpenRouter returned %s: %s", resp.status_code, resp.text[:200])
+            return None
+
+        data = resp.json()
+        choices = data.get("choices", [])
+        if not choices:
+            logger.warning("OpenRouter returned empty choices")
+            return None
+
+        message = choices[0].get("message", {})
+
+        # GPT-5.4 Image 2 puts images in message.images (not message.content)
+        images = message.get("images") or []
+
+        # Also check message.content as fallback (in case API format changes)
+        if not images:
+            msg_content = message.get("content")
+            if isinstance(msg_content, list):
+                images = msg_content
+
+        if not images:
+            logger.warning("OpenRouter returned no images (content=%s, images=%s)",
+                           type(message.get("content")).__name__,
+                           type(message.get("images")).__name__)
+            return None
+
+        # Find first image_url part
+        for part in images:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") != "image_url":
+                continue
+            raw_url = part.get("image_url", {}).get("url", "")
+            if not raw_url:
+                continue
+
+            # If it's a base64 data URL, upload to get HTTP URL
+            if raw_url.startswith("data:"):
+                logger.info("Got base64 image, uploading to CDN...")
+                http_url = _upload_base64_image(raw_url)
+                if http_url:
+                    logger.info("OpenRouter image generated and uploaded successfully")
+                    return http_url
+            else:
+                # Already an HTTP URL
+                logger.info("OpenRouter image generated successfully")
+                return raw_url
+
+        logger.warning("OpenRouter response contained no valid image_url parts")
+        return None
+
+    except Exception as e:
+        logger.warning("OpenRouter image generation failed: %s", e)
+        return None
+
+
 def image_generate_tool(
     prompt: str,
     aspect_ratio: str = DEFAULT_ASPECT_RATIO,
@@ -414,6 +566,26 @@ def image_generate_tool(
         # Validate prompt
         if not prompt or not isinstance(prompt, str) or len(prompt.strip()) == 0:
             raise ValueError("Prompt is required and must be a non-empty string")
+        
+        # --- Try OpenRouter GPT-5.4 Image 2 first ---
+        if os.getenv("OPENROUTER_API_KEY"):
+            openrouter_url = _generate_via_openrouter(prompt.strip(), aspect_ratio_lower)
+            if openrouter_url:
+                generation_time = (datetime.datetime.now() - start_time).total_seconds()
+                logger.info("Image generated via OpenRouter in %.1fs", generation_time)
+                response_data = {
+                    "success": True,
+                    "image": openrouter_url,
+                }
+                debug_call_data["success"] = True
+                debug_call_data["images_generated"] = 1
+                debug_call_data["generation_time"] = generation_time
+                _debug.log_call("image_generate_tool", debug_call_data)
+                _debug.save()
+                return json.dumps(response_data, indent=2, ensure_ascii=False)
+            else:
+                logger.info("OpenRouter failed, falling back to FAL.ai FLUX 2 Pro...")
+        
         
         # Check API key availability
         if not (os.getenv("FAL_KEY") or _resolve_managed_fal_gateway()):
@@ -551,6 +723,10 @@ def check_image_generation_requirements() -> bool:
     Returns:
         bool: True if requirements are met, False otherwise
     """
+    # OpenRouter GPT-5.4 Image 2 is sufficient — no FAL dependency needed
+    if os.getenv("OPENROUTER_API_KEY"):
+        return True
+
     try:
         # Check API key
         if not check_fal_api_key():
@@ -656,7 +832,7 @@ from tools.registry import registry, tool_error
 
 IMAGE_GENERATE_SCHEMA = {
     "name": "image_generate",
-    "description": "Generate high-quality images from text prompts using FLUX 2 Pro model with automatic 2x upscaling. Creates detailed, artistic images that are automatically upscaled for hi-rez results. Returns a single upscaled image URL. Display it using markdown: ![description](URL)",
+    "description": "Generate high-quality images from text prompts. Uses OpenRouter GPT-5.4 Image 2 when available, with FLUX 2 Pro as fallback. Returns a single image URL. Display it using markdown: ![description](URL)",
     "parameters": {
         "type": "object",
         "properties": {
