@@ -158,6 +158,8 @@ def _discover_tools():
         "tools.send_message_tool",
         # "tools.honcho_tools",  # Removed — Honcho is now a memory provider plugin
         "tools.homeassistant_tool",
+        "tools.presenton_tool",
+        "tools.parallel_subtasks_tool",
     ]
     import importlib
     for mod_name in _modules:
@@ -212,7 +214,9 @@ _LEGACY_TOOLSET_MAP = {
         "browser_navigate", "browser_snapshot", "browser_click",
         "browser_type", "browser_scroll", "browser_back",
         "browser_press", "browser_get_images",
-        "browser_vision", "browser_console"
+        "browser_vision", "browser_console",
+        "browser_view_page", "browser_select_option",
+        "browser_move_mouse", "browser_restart"
     ],
     "cronjob_tools": ["cronjob"],
     "rl_tools": [
@@ -235,6 +239,7 @@ def get_tool_definitions(
     enabled_toolsets: List[str] = None,
     disabled_toolsets: List[str] = None,
     quiet_mode: bool = False,
+    full_schema_mode: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Get tool definitions for model API calls with toolset-based filtering.
@@ -300,6 +305,31 @@ def get_tool_definitions(
 
     # Ask the registry for schemas (only returns tools whose check_fn passes)
     filtered_tools = registry.get_definitions(tools_to_include, quiet=quiet_mode)
+
+    # ── Full Schema Mode: KV-cache protection ────────────────────────
+    # When enabled, include ALL registered tools in the schema to keep
+    # the tool list stable across toolset changes (protecting KV-cache
+    # prefix). Tools outside the requested toolset are marked [DISABLED]
+    # in their description so the model knows not to call them.
+    if full_schema_mode:
+        active_names = {t["function"]["name"] for t in filtered_tools}
+        all_tools = registry.get_definitions(None, quiet=True)  # all registered
+        for tool_def in all_tools:
+            tname = tool_def["function"]["name"]
+            if tname not in active_names:
+                # Deep copy to avoid mutating the registry's cached schema
+                import copy
+                disabled_def = copy.deepcopy(tool_def)
+                orig_desc = disabled_def["function"].get("description", "")
+                disabled_def["function"]["description"] = (
+                    f"[DISABLED - not available in current session] {orig_desc}"
+                )
+                filtered_tools.append(disabled_def)
+        # Sort by name for deterministic ordering (cache-friendly)
+        filtered_tools.sort(key=lambda t: t["function"]["name"])
+        if not quiet_mode:
+            print(f"   📦 Full schema mode: {len(filtered_tools)} tools "
+                  f"({len(active_names)} active, {len(filtered_tools) - len(active_names)} disabled)")
 
     # The set of tool names that actually passed check_fn filtering.
     # Use this (not tools_to_include) for any downstream schema that references

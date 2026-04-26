@@ -594,8 +594,16 @@ def write_file_tool(path: str, content: str, task_id: str = "default") -> str:
 
 def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
                new_string: str = None, replace_all: bool = False, patch: str = None,
-               task_id: str = "default") -> str:
-    """Patch a file using replace mode or V4A patch format."""
+               task_id: str = "default", edits: list = None) -> str:
+    """Patch a file using replace mode, V4A patch format, or atomic multi-edit mode.
+    
+    Atomic edits mode (when edits parameter is provided):
+    - Reads the file once
+    - Applies all edits sequentially in memory using fuzzy matching
+    - If ALL edits succeed: writes the result back to disk
+    - If ANY edit fails: no file modification occurs (atomic rollback)
+    """
+    args_for_atomic = edits
     # Check sensitive paths for both replace (explicit path) and V4A patch (extract paths)
     _paths_to_check = []
     if path:
@@ -618,7 +626,61 @@ def patch_tool(mode: str = "replace", path: str = None, old_string: str = None,
 
         file_ops = _get_file_ops(task_id)
         
-        if mode == "replace":
+        # Atomic multi-edit mode: if edits array is provided
+        edits = args_for_atomic if hasattr(args_for_atomic, '__iter__') else None
+        if edits and isinstance(edits, list) and len(edits) > 0:
+            if not path:
+                return tool_error("path required for atomic edits")
+            # Phase 1: Read file (using read_file_raw, same as patch_replace)
+            read_result = file_ops.read_file_raw(path)
+            if read_result.error:
+                return tool_error(f"Failed to read file: {read_result.error}")
+            original_content = read_result.content
+            simulated = original_content
+            # Phase 2: Apply all edits in memory
+            from tools.fuzzy_match import fuzzy_find_and_replace
+            for i, edit in enumerate(edits):
+                find_str = edit.get("find", "")
+                replace_str = edit.get("replace", "")
+                replace_all_edit = edit.get("all", False)
+                if not find_str:
+                    return tool_error(f"Edit #{i+1}: 'find' is required and cannot be empty")
+                new_simulated, count, _strategy, error = fuzzy_find_and_replace(
+                    simulated, find_str, replace_str, replace_all_edit
+                )
+                if count == 0:
+                    return tool_error(
+                        f"Atomic edit ABORTED (no files modified): Edit #{i+1} failed — "
+                        f"could not find match for 'find' text in {path}. "
+                        f"All {i} previous edits were rolled back."
+                        + (f" Detail: {error}" if error else "")
+                    )
+                simulated = new_simulated
+            # Phase 3: All edits succeeded in memory — write back
+            from tools.file_operations import PatchResult
+            write_result = file_ops.write_file(path, simulated)
+            if write_result.error:
+                return tool_error(f"Atomic edits validated but write failed: {write_result.error}")
+            # Generate diff (same pattern as patch_replace)
+            diff_lines = []
+            import difflib
+            for line in difflib.unified_diff(
+                original_content.splitlines(keepends=True),
+                simulated.splitlines(keepends=True),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}",
+            ):
+                diff_lines.append(line)
+            diff = "".join(diff_lines)
+            # Run lint check
+            lint_result = file_ops._check_lint(path)
+            result = PatchResult(
+                success=True,
+                diff=diff,
+                files_modified=[path],
+                lint=lint_result.to_dict() if lint_result else None
+            )
+        elif mode == "replace":
             if not path:
                 return tool_error("path required")
             if old_string is None or new_string is None:
@@ -742,11 +804,15 @@ READ_FILE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "path": {"type": "string", "description": "Path to the file to read (absolute, relative, or ~/path)"},
             "offset": {"type": "integer", "description": "Line number to start reading from (1-indexed, default: 1)", "default": 1, "minimum": 1},
             "limit": {"type": "integer", "description": "Maximum number of lines to read (default: 500, max: 2000)", "default": 500, "maximum": 2000}
         },
-        "required": ["path"]
+        "required": ["brief", "path"]
     }
 }
 
@@ -756,10 +822,14 @@ WRITE_FILE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "path": {"type": "string", "description": "Path to the file to write (will be created if it doesn't exist, overwritten if it does)"},
-            "content": {"type": "string", "description": "Complete content to write to the file"}
+            "content": {"type": "string", "description": "Complete content to write to the file. MUST contain the ENTIRE file content — never write partial or truncated content. If the file is too large, use patch for targeted edits instead."}
         },
-        "required": ["path", "content"]
+        "required": ["brief", "path", "content"]
     }
 }
 
@@ -769,14 +839,31 @@ PATCH_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "mode": {"type": "string", "enum": ["replace", "patch"], "description": "Edit mode: 'replace' for targeted find-and-replace, 'patch' for V4A multi-file patches", "default": "replace"},
             "path": {"type": "string", "description": "File path to edit (required for 'replace' mode)"},
             "old_string": {"type": "string", "description": "Text to find in the file (required for 'replace' mode). Must be unique in the file unless replace_all=true. Include enough surrounding context to ensure uniqueness."},
             "new_string": {"type": "string", "description": "Replacement text (required for 'replace' mode). Can be empty string to delete the matched text."},
             "replace_all": {"type": "boolean", "description": "Replace all occurrences instead of requiring a unique match (default: false)", "default": False},
-            "patch": {"type": "string", "description": "V4A format patch content (required for 'patch' mode). Format:\n*** Begin Patch\n*** Update File: path/to/file\n@@ context hint @@\n context line\n-removed line\n+added line\n*** End Patch"}
+            "patch": {"type": "string", "description": "V4A format patch content (required for 'patch' mode). Format:\n*** Begin Patch\n*** Update File: path/to/file\n@@ context hint @@\n context line\n-removed line\n+added line\n*** End Patch"},
+            "edits": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "find": {"type": "string", "description": "The exact text string to find in the file"},
+                        "replace": {"type": "string", "description": "The replacement text that will substitute the found text"},
+                        "all": {"type": "boolean", "description": "Whether to replace all occurrences instead of just the first one. Defaults to false.", "default": False}
+                    },
+                    "required": ["find", "replace"]
+                },
+                "description": "Array of edits for atomic multi-edit mode. All edits are applied sequentially in memory; ALL must succeed or NONE are applied. Use with mode='replace' and provide 'path'. Each edit has 'find' (text to locate), 'replace' (replacement text), and optional 'all' (replace all occurrences)."
+            }
         },
-        "required": ["mode"]
+        "required": ["brief", "mode"]
     }
 }
 
@@ -786,6 +873,10 @@ SEARCH_FILES_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "pattern": {"type": "string", "description": "Regex pattern for content search, or glob pattern (e.g., '*.py') for file search"},
             "target": {"type": "string", "enum": ["content", "files"], "description": "'content' searches inside file contents, 'files' searches for files by name", "default": "content"},
             "path": {"type": "string", "description": "Directory or file to search in (default: current working directory)", "default": "."},
@@ -795,7 +886,7 @@ SEARCH_FILES_SCHEMA = {
             "output_mode": {"type": "string", "enum": ["content", "files_only", "count"], "description": "Output format for grep mode: 'content' shows matching lines with line numbers, 'files_only' lists file paths, 'count' shows match counts per file", "default": "content"},
             "context": {"type": "integer", "description": "Number of context lines before and after each match (grep mode only)", "default": 0}
         },
-        "required": ["pattern"]
+        "required": ["brief", "pattern"]
     }
 }
 
@@ -815,7 +906,8 @@ def _handle_patch(args, **kw):
     return patch_tool(
         mode=args.get("mode", "replace"), path=args.get("path"),
         old_string=args.get("old_string"), new_string=args.get("new_string"),
-        replace_all=args.get("replace_all", False), patch=args.get("patch"), task_id=tid)
+        replace_all=args.get("replace_all", False), patch=args.get("patch"),
+        task_id=tid, edits=args.get("edits"))
 
 
 def _handle_search_files(args, **kw):

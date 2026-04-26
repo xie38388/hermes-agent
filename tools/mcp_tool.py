@@ -155,6 +155,40 @@ _MCP_MESSAGE_HANDLER_SUPPORTED = _check_message_handler_support()
 if _MCP_AVAILABLE and not _MCP_MESSAGE_HANDLER_SUPPORTED:
     logger.debug("MCP SDK does not support message_handler -- dynamic tool discovery disabled")
 
+
+# --- BEGIN: GET SSE 404 tolerance patch ---
+# Some MCP servers (e.g. Presenton Cloud) do not support GET SSE.
+# The SDK handle_get_stream retries on failure then exits, which races
+# with tools/list POST causing "Session terminated". This patch wraps
+# handle_get_stream to silently wait on failure instead of exiting.
+_PATCHED_GET_STREAM = True
+
+def _patch_get_stream_tolerance():
+    try:
+        from mcp.client.streamable_http import StreamableHTTPTransport
+        import anyio
+        _orig = StreamableHTTPTransport.handle_get_stream
+
+        async def _tolerant(self, client, read_stream_writer):
+            try:
+                await _orig(self, client, read_stream_writer)
+            except Exception:
+                pass
+            # Original returned or raised -- wait silently so TaskGroup
+            # stays alive and POST request/response continues working.
+            try:
+                await anyio.sleep_forever()
+            except anyio.get_cancelled_exc_class():
+                pass
+
+        StreamableHTTPTransport.handle_get_stream = _tolerant
+        logger.debug("Patched handle_get_stream for GET SSE 404 tolerance")
+    except ImportError:
+        pass
+
+_patch_get_stream_tolerance()
+# --- END: GET SSE 404 tolerance patch ---
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -1272,15 +1306,64 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
         try:
             return _run_on_mcp_loop(_call(), timeout=tool_timeout)
         except Exception as exc:
-            logger.error(
-                "MCP tool %s/%s call failed: %s",
+            # ── Retry-with-reconnect for short-lived MCP sessions ──
+            # Some MCP servers (e.g. Presenton Cloud) expire sessions
+            # between discover and call. Trigger reconnect and retry once.
+            logger.warning(
+                "MCP tool %s/%s call failed, attempting reconnect+retry: %s",
                 server_name, tool_name, exc,
             )
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {exc}"
+            try:
+                with _lock:
+                    srv = _servers.get(server_name)
+                if srv and srv._config:
+                    async def _reconnect_and_call():
+                        # Signal shutdown to exit current _run_http
+                        srv._shutdown_event.set()
+                        # Wait briefly for clean exit
+                        await asyncio.sleep(0.5)
+                        # Reset for reconnect
+                        srv._shutdown_event = asyncio.Event()
+                        srv._ready = asyncio.Event()
+                        srv._error = None
+                        srv.session = None
+                        # Restart in background
+                        srv._task = asyncio.ensure_future(srv.run(srv._config))
+                        await srv._ready.wait()
+                        if srv._error:
+                            raise srv._error
+                        # Retry the tool call
+                        result = await srv.session.call_tool(tool_name, arguments=args)
+                        if result.isError:
+                            error_text = ""
+                            for block in (result.content or []):
+                                if hasattr(block, "text"):
+                                    error_text += block.text
+                            return json.dumps({"error": _sanitize_error(error_text or "MCP tool returned an error")})
+                        parts = []
+                        for block in (result.content or []):
+                            if hasattr(block, "text"):
+                                parts.append(block.text)
+                        text_result = "\n".join(parts) if parts else ""
+                        structured = getattr(result, "structuredContent", None)
+                        if structured is not None:
+                            if text_result:
+                                return json.dumps({"result": text_result, "structuredContent": structured})
+                            return json.dumps({"result": structured})
+                        return json.dumps({"result": text_result})
+                    return _run_on_mcp_loop(_reconnect_and_call(), timeout=tool_timeout + 30)
+                else:
+                    raise exc
+            except Exception as retry_exc:
+                logger.error(
+                    "MCP tool %s/%s retry also failed: %s",
+                    server_name, tool_name, retry_exc,
                 )
-            })
+                return json.dumps({
+                    "error": _sanitize_error(
+                        f"MCP call failed: {type(retry_exc).__name__}: {retry_exc}"
+                    )
+                })
 
     return _handler
 
@@ -1315,14 +1398,13 @@ def _make_list_resources_handler(server_name: str, tool_timeout: float):
         try:
             return _run_on_mcp_loop(_call(), timeout=tool_timeout)
         except Exception as exc:
-            logger.error(
-                "MCP %s/list_resources failed: %s", server_name, exc,
+            logger.warning(
+                "MCP %s/list_resources failed (returning empty): %s", server_name, exc,
             )
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {exc}"
-                )
-            })
+            # Gracefully return empty — many MCP servers (e.g. Composio)
+            # don't support this method. Returning error causes the agent
+            # to think all MCP methods are broken and give up.
+            return json.dumps({"resources": []})
 
     return _handler
 
@@ -1406,14 +1488,13 @@ def _make_list_prompts_handler(server_name: str, tool_timeout: float):
         try:
             return _run_on_mcp_loop(_call(), timeout=tool_timeout)
         except Exception as exc:
-            logger.error(
-                "MCP %s/list_prompts failed: %s", server_name, exc,
+            logger.warning(
+                "MCP %s/list_prompts failed (returning empty): %s", server_name, exc,
             )
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {exc}"
-                )
-            })
+            # Gracefully return empty — many MCP servers (e.g. Composio)
+            # don't support this method. Returning error causes the agent
+            # to think all MCP methods are broken and give up.
+            return json.dumps({"prompts": []})
 
     return _handler
 
@@ -1461,14 +1542,13 @@ def _make_get_prompt_handler(server_name: str, tool_timeout: float):
         try:
             return _run_on_mcp_loop(_call(), timeout=tool_timeout)
         except Exception as exc:
-            logger.error(
-                "MCP %s/get_prompt failed: %s", server_name, exc,
+            logger.warning(
+                "MCP %s/get_prompt failed (returning empty): %s", server_name, exc,
             )
-            return json.dumps({
-                "error": _sanitize_error(
-                    f"MCP call failed: {type(exc).__name__}: {exc}"
-                )
-            })
+            # Gracefully return empty — many MCP servers (e.g. Composio)
+            # don't support this method. Returning error causes the agent
+            # to think all MCP methods are broken and give up.
+            return json.dumps({"messages": [], "description": "Prompt not available"})
 
     return _handler
 

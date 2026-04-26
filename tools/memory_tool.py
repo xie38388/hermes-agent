@@ -514,6 +514,10 @@ MEMORY_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "action": {
                 "type": "string",
                 "enum": ["add", "replace", "remove"],
@@ -533,7 +537,7 @@ MEMORY_SCHEMA = {
                 "description": "Short unique substring identifying the entry to replace or remove."
             },
         },
-        "required": ["action", "target"],
+        "required": ["brief", "action", "target"],
     },
 }
 

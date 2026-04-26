@@ -541,12 +541,16 @@ MOA_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "user_prompt": {
                 "type": "string",
                 "description": "The complex query or problem to solve using multiple AI models. Should be a challenging problem that benefits from diverse perspectives and collaborative reasoning."
             }
         },
-        "required": ["user_prompt"]
+        "required": ["brief", "user_prompt"]
     }
 }
 

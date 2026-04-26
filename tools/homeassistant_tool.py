@@ -337,6 +337,10 @@ HA_LIST_ENTITIES_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "domain": {
                 "type": "string",
                 "description": (
@@ -353,7 +357,7 @@ HA_LIST_ENTITIES_SCHEMA = {
                 ),
             },
         },
-        "required": [],
+        "required": ["brief"],
     },
 }
 
@@ -366,6 +370,10 @@ HA_GET_STATE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "entity_id": {
                 "type": "string",
                 "description": (
@@ -374,7 +382,7 @@ HA_GET_STATE_SCHEMA = {
                 ),
             },
         },
-        "required": ["entity_id"],
+        "required": ["brief", "entity_id"],
     },
 }
 
@@ -389,6 +397,10 @@ HA_LIST_SERVICES_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "domain": {
                 "type": "string",
                 "description": (
@@ -397,7 +409,7 @@ HA_LIST_SERVICES_SCHEMA = {
                 ),
             },
         },
-        "required": [],
+        "required": ["brief"],
     },
 }
 
@@ -410,6 +422,10 @@ HA_CALL_SERVICE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "domain": {
                 "type": "string",
                 "description": (
@@ -442,7 +458,7 @@ HA_CALL_SERVICE_SCHEMA = {
                 ),
             },
         },
-        "required": ["domain", "service"],
+        "required": ["brief", "domain", "service"],
     },
 }
 

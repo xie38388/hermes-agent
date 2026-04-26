@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+"""
+Parallel Subtasks Tool — Batch Parallel Execution via Adapter
+=============================================================
+
+This tool does NOT execute subtasks itself. It returns a structured JSON
+marker that the Manus Adapter layer (eventTranslator.ts) intercepts when
+it sees a ``tool.started`` event for ``parallel_subtasks``.
+
+The Adapter's ``subtaskOrchestrator`` then:
+  1. Spawns N independent Hermes sub-runs (one per input)
+  2. Emits subtask_group / subtask_progress / subtask_completed SSE events
+  3. Aggregates results into CSV/JSON files
+
+The tool's return value is therefore just an acknowledgment — the real
+work happens asynchronously in the Node.js adapter layer.
+
+Registered in the ``hermes-api-server`` toolset so it is available when
+the agent is invoked via the HTTP API (which is the Manus Adapter path).
+"""
+
+import json
+import logging
+import uuid
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Tool Handler
+# =============================================================================
+
+def parallel_subtasks_handler(args: dict, **kwargs) -> str:
+    """
+    Accept the parallel subtask request and return an acknowledgment.
+
+    The actual execution is handled by the Adapter layer which intercepts
+    the ``tool.started`` event for this tool name and routes the args
+    to ``subtaskOrchestrator.executeSubtaskGroup()``.
+
+    Parameters (from args):
+        title (str): Human-readable title of the parallel operation
+        prompt_template (str): Template with {{input}} placeholder
+        inputs (list[str]): Array of input strings, one per subtask
+        output_schema (list[dict]): Schema for each subtask's output
+        description (str, optional): Description of the operation
+        target_count (int, optional): Expected number of subtasks
+        concurrency (int, optional): Max concurrent subtasks (default 5)
+
+    Returns:
+        str: JSON acknowledgment that the Adapter will intercept
+    """
+    title = args.get("title", "Untitled parallel operation")
+    inputs = args.get("inputs", [])
+    prompt_template = args.get("prompt_template", "")
+    output_schema = args.get("output_schema", [])
+    description = args.get("description", "")
+    target_count = args.get("target_count", len(inputs))
+    concurrency = args.get("concurrency", 5)
+
+    # Basic validation
+    if not inputs:
+        return json.dumps({
+            "status": "error",
+            "error": "inputs array is required and must not be empty"
+        })
+
+    if not prompt_template:
+        return json.dumps({
+            "status": "error",
+            "error": "prompt_template is required"
+        })
+
+    if not output_schema:
+        return json.dumps({
+            "status": "error",
+            "error": "output_schema is required and must not be empty"
+        })
+
+    group_id = str(uuid.uuid4())
+
+    logger.info(
+        "parallel_subtasks invoked: title=%r, inputs=%d, group_id=%s",
+        title, len(inputs), group_id,
+    )
+
+    # Return acknowledgment — the Adapter intercepts tool.started and
+    # never actually waits for this return value. But if for some reason
+    # the interception doesn't happen, this provides a meaningful response.
+    return json.dumps({
+        "status": "intercepted_by_adapter",
+        "group_id": group_id,
+        "title": title,
+        "input_count": len(inputs),
+        "message": (
+            f"Parallel execution of {len(inputs)} subtasks has been dispatched "
+            f"to the Adapter orchestrator. Results will appear in the chat as "
+            f"a SubtaskGroupCard with real-time progress updates."
+        ),
+    })
+
+
+# =============================================================================
+# Availability Check
+# =============================================================================
+
+def check_parallel_subtasks() -> bool:
+    """Always available — no external dependencies required."""
+    return True
+
+
+# =============================================================================
+# OpenAI Function-Calling Schema
+# =============================================================================
+
+PARALLEL_SUBTASKS_SCHEMA = {
+    "name": "parallel_subtasks",
+    "description": (
+        "Spawn parallel subtasks and aggregate results into a structured table. "
+        "Use this tool when a task involves performing similar operations on 5 or more "
+        "independent items that can be processed in parallel.\n\n"
+        "All subtasks share the same prompt template and output schema, differing only "
+        "in input data. Results are automatically aggregated into CSV/JSON files and "
+        "displayed as an interactive table in the chat.\n\n"
+        "WHEN TO USE:\n"
+        "- Batch research on multiple companies, products, or entities\n"
+        "- Checking status/availability of multiple websites or services\n"
+        "- Translating or summarizing multiple documents\n"
+        "- Analyzing multiple datasets with the same methodology\n"
+        "- Collecting similar information across multiple independent sources\n"
+        "- Any task where you need to do the same thing N times with different inputs\n\n"
+        "HOW IT WORKS:\n"
+        "1. Define a prompt_template with {{input}} placeholder\n"
+        "2. Provide an inputs array (each item replaces {{input}})\n"
+        "3. Define output_schema (what fields each subtask should return)\n"
+        "4. The system spawns parallel sub-agents, one per input\n"
+        "5. Results are aggregated into a table (CSV/JSON) automatically\n\n"
+        "IMPORTANT: Each subtask runs as an independent agent with its own context. "
+        "Subtasks cannot communicate with each other. Design prompts to be self-contained."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
+            "title": {
+                "type": "string",
+                "description": (
+                    "Concise human-readable title of the parallel operation. "
+                    "Example: 'Check 10 AI platform status'"
+                ),
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional description of what this parallel operation does",
+            },
+            "prompt_template": {
+                "type": "string",
+                "description": (
+                    "A template prompt where {{input}} is replaced with each item from "
+                    "the inputs array. Must contain {{input}} placeholder. "
+                    "Example: 'Research the company background of {{input}} and return "
+                    "the founding year, CEO name, and headquarters location.'"
+                ),
+            },
+            "inputs": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Array of input strings, one per subtask. Each is substituted into "
+                    "prompt_template at the {{input}} placeholder. Maximum 2000 items."
+                ),
+            },
+            "output_schema": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Field name in snake_case, e.g. 'company_name'",
+                        },
+                        "type": {
+                            "type": "string",
+                            "enum": ["string", "number", "boolean", "file"],
+                            "description": "Data type of the output field",
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "Human-readable title, e.g. 'Company Name'",
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Concise description of the output field",
+                        },
+                        "format": {
+                            "type": "string",
+                            "description": (
+                                "Format hint: for strings give a pattern with example, "
+                                "for numbers define range, for boolean/file use 'NA'"
+                            ),
+                        },
+                    },
+                    "required": ["brief", "name", "type", "title", "description", "format"],
+                },
+                "description": "Schema defining the output fields each subtask must return",
+            },
+            "target_count": {
+                "type": "integer",
+                "description": (
+                    "Expected number of subtasks. Should equal inputs array length. "
+                    "Used for validation."
+                ),
+            },
+            "concurrency": {
+                "type": "integer",
+                "description": (
+                    "Maximum number of subtasks to run concurrently. Default is 5. "
+                    "Higher values speed up execution but use more resources."
+                ),
+            },
+        },
+        "required": ["title", "prompt_template", "inputs", "output_schema"],
+    },
+}
+
+
+# =============================================================================
+# Registry
+# =============================================================================
+
+from tools.registry import registry
+
+registry.register(
+    name="parallel_subtasks",
+    toolset="hermes-api-server",
+    schema=PARALLEL_SUBTASKS_SCHEMA,
+    handler=lambda args, **kw: parallel_subtasks_handler(args, **kw),
+    check_fn=check_parallel_subtasks,
+    emoji="⚡",
+    description="Spawn parallel subtasks and aggregate results into structured tables",
+)

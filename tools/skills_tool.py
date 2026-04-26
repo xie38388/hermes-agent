@@ -1308,12 +1308,16 @@ SKILLS_LIST_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "category": {
                 "type": "string",
                 "description": "Optional category filter to narrow results",
             }
         },
-        "required": [],
+        "required": ["brief"],
     },
 }
 
@@ -1323,6 +1327,10 @@ SKILL_VIEW_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "name": {
                 "type": "string",
                 "description": "The skill name (use skills_list to see available skills)",
@@ -1332,7 +1340,7 @@ SKILL_VIEW_SCHEMA = {
                 "description": "OPTIONAL: Path to a linked file within the skill (e.g., 'references/api.md', 'templates/config.yaml', 'scripts/validate.py'). Omit to get the main SKILL.md content.",
             },
         },
-        "required": ["name"],
+        "required": ["brief", "name"],
     },
 }
 

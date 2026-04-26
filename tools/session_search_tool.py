@@ -467,6 +467,10 @@ SESSION_SEARCH_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "query": {
                 "type": "string",
                 "description": "Search query — keywords, phrases, or boolean expressions to find in past sessions. Omit this parameter entirely to browse recent sessions instead (returns titles, previews, timestamps with no LLM cost).",
@@ -479,9 +483,11 @@ SESSION_SEARCH_SCHEMA = {
                 "type": "integer",
                 "description": "Max sessions to summarize (default: 3, max: 5).",
                 "default": 3,
+                    "minimum": 1,
+                    "maximum": 5,
             },
         },
-        "required": [],
+        "required": ["brief"],
     },
 }
 

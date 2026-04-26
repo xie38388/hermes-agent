@@ -674,6 +674,10 @@ SKILL_MANAGE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "action": {
                 "type": "string",
                 "enum": ["create", "patch", "edit", "delete", "write_file", "remove_file"],
@@ -735,7 +739,7 @@ SKILL_MANAGE_SCHEMA = {
                 "description": "Content for the file. Required for 'write_file'."
             },
         },
-        "required": ["action", "name"],
+        "required": ["brief", "action", "name"],
     },
 }
 

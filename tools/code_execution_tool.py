@@ -1343,6 +1343,10 @@ def build_execute_code_schema(enabled_sandbox_tools: set = None) -> dict:
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "code": {
                     "type": "string",
                     "description": (
@@ -1352,7 +1356,7 @@ def build_execute_code_schema(enabled_sandbox_tools: set = None) -> dict:
                     ),
                 },
             },
-            "required": ["code"],
+            "required": ["brief", "code"],
         },
     }
 

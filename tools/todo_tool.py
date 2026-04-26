@@ -226,6 +226,10 @@ TODO_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "todos": {
                 "type": "array",
                 "description": "Task items to write. Omit to read current list.",
@@ -246,7 +250,7 @@ TODO_SCHEMA = {
                             "description": "Current status"
                         }
                     },
-                    "required": ["id", "content", "status"]
+                    "required": ["brief", "id", "content", "status"]
                 }
             },
             "merge": {

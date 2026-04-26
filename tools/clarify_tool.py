@@ -105,6 +105,10 @@ CLARIFY_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "question": {
                 "type": "string",
                 "description": "The question to present to the user.",
@@ -120,7 +124,7 @@ CLARIFY_SCHEMA = {
                 ),
             },
         },
-        "required": ["question"],
+        "required": ["brief", "question"],
     },
 }
 

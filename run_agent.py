@@ -94,7 +94,7 @@ from agent.model_metadata import (
 from agent.context_compressor import ContextCompressor
 from agent.subdirectory_hints import SubdirectoryHintTracker
 from agent.prompt_caching import apply_anthropic_cache_control
-from agent.prompt_builder import build_skills_system_prompt, build_context_files_prompt, build_environment_hints, load_soul_md, TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, DEVELOPER_ROLE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE, OPENAI_MODEL_EXECUTION_GUIDANCE
+from agent.prompt_builder import build_skills_system_prompt, build_context_files_prompt, build_environment_hints, load_soul_md, TOOL_USE_ENFORCEMENT_GUIDANCE, TOOL_USE_ENFORCEMENT_MODELS, DEVELOPER_ROLE_MODELS, GOOGLE_MODEL_OPERATIONAL_GUIDANCE, OPENAI_MODEL_EXECUTION_GUIDANCE, PARALLEL_SUBTASKS_GUIDANCE, DEPTH_EXECUTION_PROTOCOL, OUTPUT_FORMAT_PROTOCOL, EXTERNAL_SERVICE_PROTOCOL, PLAN_DISCIPLINE_PROTOCOL, MESSAGE_DISCIPLINE_PROTOCOL, VERIFICATION_PROTOCOL, BRIEF_PARAMETER_DISCIPLINE, FILE_OPERATION_CONSTRAINTS, DEBUG_DELEGATION_PROTOCOL, STRUCTURED_VARIATION_PROTOCOL, DELIVERY_GATE_PROTOCOL, AGENT_LOOP_PROTOCOL, REQUIREMENT_CHANGE_TRIGGER, DISCLOSURE_PROHIBITION, TOOL_AVAILABILITY_PROTOCOL, IMAGE_GENERATION_GUIDANCE
 from agent.usage_pricing import estimate_usage_cost, normalize_usage
 from agent.display import (
     KawaiiSpinner, build_tool_preview as _build_tool_preview,
@@ -106,6 +106,7 @@ from agent.trajectory import (
     convert_scratchpad_to_think, has_incomplete_scratchpad,
     save_trajectory as _save_trajectory_to_file,
 )
+from agent.serialization_variation import apply_serialization_variation
 from utils import atomic_json_write, env_var_enabled
 
 
@@ -528,6 +529,7 @@ class AIAgent:
         tool_delay: float = 1.0,
         enabled_toolsets: List[str] = None,
         disabled_toolsets: List[str] = None,
+        full_schema_mode: bool = False,
         save_trajectories: bool = False,
         verbose_logging: bool = False,
         quiet_mode: bool = False,
@@ -730,6 +732,7 @@ class AIAgent:
         # Store toolset filtering options
         self.enabled_toolsets = enabled_toolsets
         self.disabled_toolsets = disabled_toolsets
+        self.full_schema_mode = full_schema_mode
         
         # Model response configuration
         self.max_tokens = max_tokens  # None = use model default
@@ -977,6 +980,7 @@ class AIAgent:
             enabled_toolsets=enabled_toolsets,
             disabled_toolsets=disabled_toolsets,
             quiet_mode=self.quiet_mode,
+            full_schema_mode=full_schema_mode,
         )
         
         # Show tool configuration and store valid tool names for validation
@@ -3091,6 +3095,8 @@ class AIAgent:
             tool_guidance.append(SESSION_SEARCH_GUIDANCE)
         if "skill_manage" in self.valid_tool_names:
             tool_guidance.append(SKILLS_GUIDANCE)
+        if "parallel_subtasks" in self.valid_tool_names:
+            tool_guidance.append(PARALLEL_SUBTASKS_GUIDANCE)
         if tool_guidance:
             prompt_parts.append(" ".join(tool_guidance))
 
@@ -3105,21 +3111,41 @@ class AIAgent:
         #   false — never inject
         #   list  — custom model-name substrings to match
         if self.valid_tool_names:
+            # --- Depth Enhancement: Universal injection ---
+            # TOOL_USE_ENFORCEMENT is now injected for ALL models unconditionally.
+            # The old model-gating logic has been removed because shallow execution
+            # is a universal LLM problem, not model-specific.
             _enforce = self._tool_use_enforcement
-            _inject = False
-            if _enforce is True or (isinstance(_enforce, str) and _enforce.lower() in ("true", "always", "yes", "on")):
-                _inject = True
-            elif _enforce is False or (isinstance(_enforce, str) and _enforce.lower() in ("false", "never", "no", "off")):
-                _inject = False
-            elif isinstance(_enforce, list):
-                model_lower = (self.model or "").lower()
-                _inject = any(p.lower() in model_lower for p in _enforce if isinstance(p, str))
-            else:
-                # "auto" or any unrecognised value — use hardcoded defaults
-                model_lower = (self.model or "").lower()
-                _inject = any(p in model_lower for p in TOOL_USE_ENFORCEMENT_MODELS)
-            if _inject:
+            _skip_enforcement = (
+                _enforce is False
+                or (isinstance(_enforce, str) and _enforce.lower() in ("false", "never", "no", "off"))
+            )
+            if not _skip_enforcement:
                 prompt_parts.append(TOOL_USE_ENFORCEMENT_GUIDANCE)
+                prompt_parts.append(BRIEF_PARAMETER_DISCIPLINE)
+
+            # Depth execution protocol — always injected when tools are available.
+            # Addresses completion standards, anti-laziness, file-as-memory,
+            # anti-fabrication, and error resilience.
+            prompt_parts.append(DEPTH_EXECUTION_PROTOCOL)
+            prompt_parts.append(FILE_OPERATION_CONSTRAINTS)
+            prompt_parts.append(DEBUG_DELEGATION_PROTOCOL)
+            prompt_parts.append(STRUCTURED_VARIATION_PROTOCOL)
+            prompt_parts.append(OUTPUT_FORMAT_PROTOCOL)
+            prompt_parts.append(EXTERNAL_SERVICE_PROTOCOL)
+            prompt_parts.append(IMAGE_GENERATION_GUIDANCE)
+            prompt_parts.append(PLAN_DISCIPLINE_PROTOCOL)
+            prompt_parts.append(MESSAGE_DISCIPLINE_PROTOCOL)
+            prompt_parts.append(VERIFICATION_PROTOCOL)
+            prompt_parts.append(DELIVERY_GATE_PROTOCOL)
+            prompt_parts.append(AGENT_LOOP_PROTOCOL)
+            prompt_parts.append(REQUIREMENT_CHANGE_TRIGGER)
+            prompt_parts.append(DISCLOSURE_PROHIBITION)
+        if getattr(self, 'full_schema_mode', False):
+            prompt_parts.append(TOOL_AVAILABILITY_PROTOCOL, IMAGE_GENERATION_GUIDANCE)
+
+            # Model-specific guidance (additive, not gated)
+            if not _skip_enforcement:
                 _model_lower = (self.model or "").lower()
                 # Google model operational guidance (conciseness, absolute
                 # paths, parallel tool calls, verify-before-edit, etc.)
@@ -5989,7 +6015,7 @@ class AIAgent:
                 "input": self._chat_messages_to_responses_input(payload_messages),
                 "tools": self._responses_tools(),
                 "tool_choice": "auto",
-                "parallel_tool_calls": True,
+                "parallel_tool_calls": False,
                 "store": False,
             }
 
@@ -6947,8 +6973,9 @@ class AIAgent:
                 if self.tool_progress_callback:
                     try:
                         self.tool_progress_callback(
-                            "tool.completed", function_name, None, None,
+                            "tool.completed", function_name, None,
                             duration=tool_duration, is_error=is_error,
+                            result=function_result, args=function_args,
                         )
                     except Exception as cb_err:
                         logging.debug(f"Tool progress callback error: {cb_err}")
@@ -6989,6 +7016,10 @@ class AIAgent:
             if subdir_hints:
                 function_result += subdir_hints
 
+            # CE-P6: Apply serialization variation to break few-shot patterns
+            function_result = apply_serialization_variation(
+                function_result, api_call_count, tool_name=name
+            )
             tool_msg = {
                 "role": "tool",
                 "content": function_result,
@@ -7281,8 +7312,9 @@ class AIAgent:
             if self.tool_progress_callback:
                 try:
                     self.tool_progress_callback(
-                        "tool.completed", function_name, None, None,
+                        "tool.completed", function_name, None,
                         duration=tool_duration, is_error=_is_error_result,
+                        result=function_result, args=function_args,
                     )
                 except Exception as cb_err:
                     logging.debug(f"Tool progress callback error: {cb_err}")
@@ -7312,6 +7344,10 @@ class AIAgent:
             if subdir_hints:
                 function_result += subdir_hints
 
+            # CE-P6: Apply serialization variation to break few-shot patterns
+            function_result = apply_serialization_variation(
+                function_result, api_call_count, tool_name=function_name
+            )
             tool_msg = {
                 "role": "tool",
                 "content": function_result,
@@ -7864,6 +7900,8 @@ class AIAgent:
 
         while (api_call_count < self.max_iterations and self.iteration_budget.remaining > 0) or self._budget_grace_call:
             # Reset per-turn checkpoint dedup so each iteration can take one snapshot
+            if api_call_count == 0:
+                _depth_nudge_count = 0
             self._checkpoint_mgr.new_turn()
 
             # Check for interrupt request (e.g., user sent new message)
@@ -10097,6 +10135,36 @@ class AIAgent:
 
                     messages.append(final_msg)
                     
+                    # --- Continuation nudge: prevent premature stopping ---
+                    # If the agent stops very early (< 8 calls) and has tools available,
+                    # nudge it to reconsider before accepting the text response as final.
+                    if (
+                        api_call_count < 8
+                        and self.valid_tool_names
+                        and _depth_nudge_count < 2
+                        and final_response
+                        and final_response != "(empty)"
+                    ):
+                        _depth_nudge_count += 1
+                        nudge_msg = {
+                            "role": "user",
+                            "content": (
+                                f"[System: You responded with text after only {api_call_count} tool calls. "
+                                "This seems premature. Please verify: is the task truly complete? "
+                                "Have you gathered all necessary information, executed all required actions, "
+                                "and verified the results? If there is more work to do, continue using tools. "
+                                "If you are genuinely finished, re-output your final answer.]"
+                            ),
+                        }
+                        messages.append(final_msg)
+                        messages.append(nudge_msg)
+                        self._session_messages = messages
+                        self._save_session_log(messages)
+                        if not self.quiet_mode:
+                            self._safe_print(f"🔄 Depth nudge #{_depth_nudge_count}: agent stopped after {api_call_count} calls, nudging to continue")
+                        continue
+                    # --- End continuation nudge ---
+
                     _turn_exit_reason = f"text_response(finish_reason={finish_reason})"
                     if not self.quiet_mode:
                         self._safe_print(f"🎉 Conversation completed after {api_call_count} OpenAI-compatible API call(s)")

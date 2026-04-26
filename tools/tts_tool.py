@@ -1044,6 +1044,10 @@ TTS_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "text": {
                 "type": "string",
                 "description": "The text to convert to speech. Keep under 4000 characters."
@@ -1053,7 +1057,7 @@ TTS_SCHEMA = {
                 "description": "Optional custom file path to save the audio. Defaults to ~/.hermes/audio_cache/<timestamp>.mp3"
             }
         },
-        "required": ["text"]
+        "required": ["brief", "text"]
     }
 }
 

@@ -61,6 +61,10 @@ SEND_MESSAGE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "action": {
                 "type": "string",
                 "enum": ["send", "list"],
@@ -73,9 +77,14 @@ SEND_MESSAGE_SCHEMA = {
             "message": {
                 "type": "string",
                 "description": "The message text to send"
+            },
+            "suggested_action": {
+                "type": "string",
+                "enum": ["none", "confirm_browser_operation", "take_over_browser"],
+                "description": "Suggested action for the user. Use 'confirm_browser_operation' before sensitive browser operations (posting content, completing payment, submitting forms). Use 'take_over_browser' when user login, CAPTCHA, or manual browser step is required. Default: none."
             }
         },
-        "required": []
+        "required": ["brief"]
     }
 }
 

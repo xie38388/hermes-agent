@@ -639,16 +639,12 @@ def image_generate_tool(
             if openrouter_url:
                 generation_time = (datetime.datetime.now() - start_time).total_seconds()
                 logger.info("Image generated via OpenRouter in %.1fs", generation_time)
-                response_data = {
-                    "success": True,
-                    "image": openrouter_url,
-                }
                 debug_call_data["success"] = True
                 debug_call_data["images_generated"] = 1
                 debug_call_data["generation_time"] = generation_time
                 _debug.log_call("image_generate_tool", debug_call_data)
                 _debug.save()
-                return json.dumps(response_data, indent=2, ensure_ascii=False)
+                return f"Image generated successfully (took {generation_time:.0f}s). Here is the image URL:\n\n![Generated Image]({openrouter_url})\n\nDisplay this image to the user using the markdown above."
             else:
                 logger.info("OpenRouter failed, falling back to FAL.ai FLUX 2 Pro...")
         
@@ -738,7 +734,8 @@ def image_generate_tool(
         # Prepare successful response - minimal format
         response_data = {
             "success": True,
-            "image": formatted_images[0]["url"] if formatted_images else None
+            "image": formatted_images[0]["url"] if formatted_images else None,
+            "message": f"Image generated successfully. Display it to the user with markdown: ![Generated Image]({formatted_images[0]['url'] if formatted_images else ''})"
         }
         
         debug_call_data["success"] = True
@@ -760,6 +757,7 @@ def image_generate_tool(
         response_data = {
             "success": False,
             "image": None,
+            "message": "Image generation failed. Please try again with a different prompt.",
             "error": str(e),
             "error_type": type(e).__name__,
         }

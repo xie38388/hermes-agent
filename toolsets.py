@@ -60,6 +60,10 @@ _HERMES_CORE_TOOLS = [
     "send_message",
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
     "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
+    # Parallel subtask execution
+            "parallel_subtasks",
+            # Presenton PPT generation
+    "generate_presentation",
 ]
 
 
@@ -188,7 +192,7 @@ TOOLSETS = {
     
     "delegation": {
         "description": "Spawn subagents with isolated context for complex subtasks",
-        "tools": ["delegate_task"],
+        "tools": ["delegate_task", "parallel_subtasks"],
         "includes": []
     },
 
@@ -270,6 +274,12 @@ TOOLSETS = {
             "cronjob",
             # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
             "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
+            # Parallel subtask execution
+            "parallel_subtasks",
+            # Presenton PPT generation
+            "generate_presentation",
+
+
 
         ],
         "includes": []

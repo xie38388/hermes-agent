@@ -439,9 +439,14 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "action": {
                 "type": "string",
-                "description": "One of: create, list, update, pause, resume, remove, run"
+                "enum": ["create", "list", "update", "pause", "resume", "remove", "run"],
+                "description": "Action to perform on cron jobs"
             },
             "job_id": {
                 "type": "string",
@@ -485,7 +490,7 @@ Important safety rule: cron-run sessions should not recursively schedule more cr
                         "description": "Model name (e.g. 'anthropic/claude-sonnet-4', 'claude-sonnet-4')"
                     }
                 },
-                "required": ["model"]
+                "required": ["brief", "model"]
             },
             "script": {
                 "type": "string",

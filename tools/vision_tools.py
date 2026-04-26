@@ -762,6 +762,10 @@ VISION_ANALYZE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "image_url": {
                 "type": "string",
                 "description": "Image URL (http/https) or local file path to analyze."
@@ -771,7 +775,7 @@ VISION_ANALYZE_SCHEMA = {
                 "description": "Your specific question or request about the image to resolve. The AI will automatically provide a complete image description AND answer your specific question."
             }
         },
-        "required": ["image_url", "question"]
+        "required": ["brief", "image_url", "question"]
     }
 }
 

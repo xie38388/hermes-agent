@@ -2049,16 +2049,28 @@ from tools.registry import registry, tool_error
 
 WEB_SEARCH_SCHEMA = {
     "name": "web_search",
-    "description": "Search the web for information on any topic. Returns up to 5 relevant results with titles, URLs, and descriptions.",
+    "description": "Search the web for information on any topic. Supports up to 3 query variants of the SAME intent for better coverage. Returns up to 5 relevant results per query with titles, URLs, and descriptions. Results are deduplicated across queries.",
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
+            "queries": {
+                "type": "array",
+                "items": {"type": "string", "maxLength": 500},
+                "description": "Up to 3 query variants that express the SAME search intent (i.e., query expansions). MUST be variants of the same goal, NOT different goals. For non-English queries, MUST include at least one English query.",
+                "maxItems": 3,
+                "minItems": 1
+            },
             "query": {
                 "type": "string",
-                "description": "The search query to look up on the web"
+                "description": "[DEPRECATED — use 'queries' instead] Single search query. Kept for backward compatibility.",
+                "maxLength": 500
             }
         },
-        "required": ["query"]
+        "required": ["brief"]
     }
 }
 
@@ -2068,6 +2080,10 @@ WEB_EXTRACT_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "urls": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -2075,15 +2091,52 @@ WEB_EXTRACT_SCHEMA = {
                 "maxItems": 5
             }
         },
-        "required": ["urls"]
+        "required": ["brief", "urls"]
     }
 }
+
+def _handle_web_search(args, **kw):
+    """Handle web_search with multi-query support. Loops over queries, deduplicates by URL."""
+    import json as _json
+    queries = args.get("queries", [])
+    # Backward compat: fall back to single query
+    if not queries:
+        q = args.get("query", "")
+        queries = [q] if q else []
+    if not queries:
+        return tool_error("At least one query is required (use 'queries' array or 'query' string)")
+    # Cap at 3 queries
+    queries = queries[:3]
+    all_results = []
+    seen_urls = set()
+    for q in queries:
+        raw = web_search_tool(q, limit=5)
+        try:
+            parsed = _json.loads(raw)
+            if parsed.get("success") and "data" in parsed and "web" in parsed["data"]:
+                for item in parsed["data"]["web"]:
+                    url = item.get("url", "")
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        all_results.append(item)
+        except (_json.JSONDecodeError, TypeError):
+            # If single query returned an error string, pass it through
+            if len(queries) == 1:
+                return raw
+    # Re-number positions
+    for i, item in enumerate(all_results):
+        item["position"] = i + 1
+    return _json.dumps({
+        "success": True,
+        "queries_used": queries,
+        "data": {"web": all_results}
+    }, indent=2, ensure_ascii=False)
 
 registry.register(
     name="web_search",
     toolset="web",
     schema=WEB_SEARCH_SCHEMA,
-    handler=lambda args, **kw: web_search_tool(args.get("query", ""), limit=5),
+    handler=_handle_web_search,
     check_fn=check_web_api_key,
     requires_env=_web_requires_env(),
     emoji="🔍",

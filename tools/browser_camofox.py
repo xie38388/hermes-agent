@@ -226,6 +226,59 @@ def _delete(path: str, body: dict = None, timeout: int = _DEFAULT_TIMEOUT) -> di
 
 
 # ---------------------------------------------------------------------------
+
+def _auto_screenshot(task_id: Optional[str] = None) -> Optional[str]:
+    """Take a screenshot, compress to JPEG, and return base64 data URL.
+
+    Resize to max 1280px width and encode as JPEG quality=75 for good visual quality.
+    The SSE transport caps tool results at 50KB.  Returns None
+    on any failure so callers can safely skip the screenshot field.
+    """
+    try:
+        # Force-resize browser windows to fill Xvfb screen before screenshot
+        import subprocess as _sp
+        _sp.run(["/home/ubuntu/resize_windows.sh"], timeout=3, capture_output=True)
+        session = _get_session(task_id)
+        if not session.get("tab_id"):
+            return None
+        import base64 as _b64
+        import io
+        resp = _get_raw(
+            f"/tabs/{session['tab_id']}/screenshot",
+            params={"userId": session["user_id"]},
+        )
+        if resp.status_code != 200 or not resp.content:
+            return None
+        try:
+            from PIL import Image
+            img = Image.open(io.BytesIO(resp.content))
+            # Resize to max 1280px width, preserving aspect ratio
+            max_w = 1280
+            if img.width > max_w:
+                ratio = max_w / img.width
+                img = img.resize((max_w, int(img.height * ratio)), Image.LANCZOS)
+            # Convert to RGB (JPEG doesn't support alpha)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            # Encode as JPEG with good quality
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=75, optimize=True)
+            encoded = _b64.b64encode(buf.getvalue()).decode("ascii")
+            # Safety check: if still over 48KB base64, reduce quality further
+            if len(encoded) > 48000:
+                buf = io.BytesIO()
+                small = img.resize((int(img.width * 0.6), int(img.height * 0.6)), Image.LANCZOS)
+                small.save(buf, format="JPEG", quality=50, optimize=True)
+                encoded = _b64.b64encode(buf.getvalue()).decode("ascii")
+            return f"data:image/jpeg;base64,{encoded}"
+        except ImportError:
+            # PIL not available — fall back to raw PNG (may be truncated by SSE)
+            encoded = _b64.b64encode(resp.content).decode("ascii")
+            return f"data:image/png;base64,{encoded}"
+    except Exception as e:
+        logger.debug("_auto_screenshot failed: %s", e)
+    return None
+
 # Tool implementations
 # ---------------------------------------------------------------------------
 
@@ -275,6 +328,9 @@ def camofox_navigate(url: str, task_id: Optional[str] = None) -> str:
         except Exception:
             pass  # Navigation succeeded; snapshot is a bonus
 
+        _ss = _auto_screenshot(task_id)
+        if _ss:
+            result["screenshot_url"] = _ss
         return json.dumps(result)
     except requests.HTTPError as e:
         return tool_error(f"Navigation failed: {e}", success=False)
@@ -341,11 +397,15 @@ def camofox_click(ref: str, task_id: Optional[str] = None) -> str:
             f"/tabs/{session['tab_id']}/click",
             {"userId": session["user_id"], "ref": clean_ref},
         )
-        return json.dumps({
+        _result = {
             "success": True,
             "clicked": clean_ref,
             "url": data.get("url", ""),
-        })
+        }
+        _ss = _auto_screenshot(task_id)
+        if _ss:
+            _result["screenshot_url"] = _ss
+        return json.dumps(_result)
     except Exception as e:
         return tool_error(str(e), success=False)
 
@@ -363,11 +423,15 @@ def camofox_type(ref: str, text: str, task_id: Optional[str] = None) -> str:
             f"/tabs/{session['tab_id']}/type",
             {"userId": session["user_id"], "ref": clean_ref, "text": text},
         )
-        return json.dumps({
+        _result = {
             "success": True,
             "typed": text,
             "element": clean_ref,
-        })
+        }
+        _ss = _auto_screenshot(task_id)
+        if _ss:
+            _result["screenshot_url"] = _ss
+        return json.dumps(_result)
     except Exception as e:
         return tool_error(str(e), success=False)
 
@@ -383,7 +447,11 @@ def camofox_scroll(direction: str, task_id: Optional[str] = None) -> str:
             f"/tabs/{session['tab_id']}/scroll",
             {"userId": session["user_id"], "direction": direction},
         )
-        return json.dumps({"success": True, "scrolled": direction})
+        _result = {"success": True, "scrolled": direction}
+        _ss = _auto_screenshot(task_id)
+        if _ss:
+            _result["screenshot_url"] = _ss
+        return json.dumps(_result)
     except Exception as e:
         return tool_error(str(e), success=False)
 
@@ -399,7 +467,11 @@ def camofox_back(task_id: Optional[str] = None) -> str:
             f"/tabs/{session['tab_id']}/back",
             {"userId": session["user_id"]},
         )
-        return json.dumps({"success": True, "url": data.get("url", "")})
+        _result = {"success": True, "url": data.get("url", "")}
+        _ss = _auto_screenshot(task_id)
+        if _ss:
+            _result["screenshot_url"] = _ss
+        return json.dumps(_result)
     except Exception as e:
         return tool_error(str(e), success=False)
 
@@ -415,7 +487,11 @@ def camofox_press(key: str, task_id: Optional[str] = None) -> str:
             f"/tabs/{session['tab_id']}/press",
             {"userId": session["user_id"], "key": key},
         )
-        return json.dumps({"success": True, "pressed": key})
+        _result = {"success": True, "pressed": key}
+        _ss = _auto_screenshot(task_id)
+        if _ss:
+            _result["screenshot_url"] = _ss
+        return json.dumps(_result)
     except Exception as e:
         return tool_error(str(e), success=False)
 

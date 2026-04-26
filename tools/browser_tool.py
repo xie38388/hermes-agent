@@ -624,17 +624,93 @@ atexit.register(_stop_browser_cleanup_thread)
 
 BROWSER_TOOL_SCHEMAS = [
     {
+        "name": "browser_view_page",
+        "description": "View the current page with structured interactive elements and visible content. Returns a numbered list of clickable/typeable elements (use the index number with browser_click or browser_type) and the visible page text. Call this after navigating to understand what's on the page and what you can interact with.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
+            },
+            "required": ["brief"]
+        }
+    },
+    {
+        "name": "browser_select_option",
+        "description": "Select an option from a dropdown (<select>) element. First call browser_view_page to get the element index, then use this tool with the element index and the option index (0-based).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
+                "index": {
+                    "type": "integer",
+                    "description": "The index of the select element from browser_view_page output."
+                },
+                "option": {
+                    "type": "integer",
+                    "description": "The option index to select (0-based)."
+                }
+            },
+            "required": ["brief", "index", "option"]
+        }
+    },
+    {
+        "name": "browser_move_mouse",
+        "description": "Move the mouse cursor to a specific coordinate on the page. Useful for hovering over elements to trigger tooltips or dropdown menus.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
+                "coordinate_x": {
+                    "type": "number",
+                    "description": "X coordinate (pixels from left edge of viewport)."
+                },
+                "coordinate_y": {
+                    "type": "number",
+                    "description": "Y coordinate (pixels from top edge of viewport)."
+                }
+            },
+            "required": ["brief", "coordinate_x", "coordinate_y"]
+        }
+    },
+    {
+        "name": "browser_restart",
+        "description": "Restart the browser session. Closes the current tab and clears the session. Call browser_navigate afterwards to open a new page. Use this when the browser is in a bad state.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
+            },
+            "required": ["brief"]
+        }
+    },
+    {
         "name": "browser_navigate",
         "description": "Navigate to a URL in the browser. Initializes the session and loads the page. Must be called before other browser tools. For simple information retrieval, prefer web_search or web_extract (faster, cheaper). Use browser tools when you need to interact with a page (click, fill forms, dynamic content). Returns a compact page snapshot with interactive elements and ref IDs — no need to call browser_snapshot separately after navigating.",
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "url": {
                     "type": "string",
                     "description": "The URL to navigate to (e.g., 'https://example.com')"
                 }
             },
-            "required": ["url"]
+            "required": ["brief", "url"]
         }
     },
     {
@@ -643,45 +719,91 @@ BROWSER_TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "full": {
                     "type": "boolean",
                     "description": "If true, returns complete page content. If false (default), returns compact view with interactive elements only.",
                     "default": False
                 }
             },
-            "required": []
+            "required": ["brief"]
         }
     },
     {
         "name": "browser_click",
-        "description": "Click on an element identified by its ref ID from the snapshot (e.g., '@e5'). The ref IDs are shown in square brackets in the snapshot output. Requires browser_navigate and browser_snapshot to be called first.",
+        "description": "Click an element on the page. Supports three modes: (1) index — use the element index from browser_view_page output (PREFERRED), (2) coordinate — click at specific x,y pixel position, (3) ref — legacy accessibility tree reference like @e5 (e.g., '@e5'). The ref IDs are shown in square brackets in the snapshot output. Requires browser_navigate and browser_snapshot to be called first.",
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "ref": {
                     "type": "string",
-                    "description": "The element reference from the snapshot (e.g., '@e5', '@e12')"
+                    "description": "Legacy: Accessibility tree element ref (e.g. @e5). Use index mode instead when possible."
+                },
+                "index": {
+                    "type": "integer",
+                    "description": "PREFERRED: Element index from browser_view_page output."
+                },
+                "coordinate_x": {
+                    "type": "number",
+                    "description": "X coordinate for coordinate-based click."
+                },
+                "coordinate_y": {
+                    "type": "number",
+                    "description": "Y coordinate for coordinate-based click."
                 }
             },
-            "required": ["ref"]
+            "required": ["brief"]
         }
     },
     {
         "name": "browser_type",
-        "description": "Type text into an input field identified by its ref ID. Clears the field first, then types the new text. Requires browser_navigate and browser_snapshot to be called first.",
+        "description": "Type text into an input field. Supports three modes: (1) index — use the element index from browser_view_page output (PREFERRED), (2) coordinate — click at x,y then type, (3) ref — legacy accessibility tree reference. Clears the field first, then types the new text. Requires browser_navigate and browser_snapshot to be called first.",
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "ref": {
                     "type": "string",
-                    "description": "The element reference from the snapshot (e.g., '@e3')"
+                    "description": "Legacy: Accessibility tree element ref (e.g. @e3). Use index mode instead when possible."
+                },
+                "index": {
+                    "type": "integer",
+                    "description": "PREFERRED: Element index from browser_view_page output."
+                },
+                "coordinate_x": {
+                    "type": "number",
+                    "description": "X coordinate for coordinate-based typing."
+                },
+                "coordinate_y": {
+                    "type": "number",
+                    "description": "Y coordinate for coordinate-based typing."
                 },
                 "text": {
                     "type": "string",
-                    "description": "The text to type into the field"
+                    "description": "The text to type."
+                },
+                "press_enter": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "If true, press Enter after typing."
+                },
+                "clear_first": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "If true, clear the input field before typing."
                 }
             },
-            "required": ["ref", "text"]
+            "required": ["brief", "text"]
         }
     },
     {
@@ -690,13 +812,17 @@ BROWSER_TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "direction": {
                     "type": "string",
-                    "enum": ["up", "down"],
+                    "enum": ["up", "down", "to_top", "to_bottom"],
                     "description": "Direction to scroll"
                 }
             },
-            "required": ["direction"]
+            "required": ["brief", "direction"]
         }
     },
     {
@@ -704,8 +830,13 @@ BROWSER_TOOL_SCHEMAS = [
         "description": "Navigate back to the previous page in browser history. Requires browser_navigate to be called first.",
         "parameters": {
             "type": "object",
-            "properties": {},
-            "required": []
+            "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
+            },
+            "required": ["brief"]
         }
     },
     {
@@ -714,12 +845,16 @@ BROWSER_TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "key": {
                     "type": "string",
                     "description": "Key to press (e.g., 'Enter', 'Tab', 'Escape', 'ArrowDown')"
                 }
             },
-            "required": ["key"]
+            "required": ["brief", "key"]
         }
     },
     {
@@ -727,8 +862,13 @@ BROWSER_TOOL_SCHEMAS = [
         "description": "Get a list of all images on the current page with their URLs and alt text. Useful for finding images to analyze with the vision tool. Requires browser_navigate to be called first.",
         "parameters": {
             "type": "object",
-            "properties": {},
-            "required": []
+            "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
+            },
+            "required": ["brief"]
         }
     },
     {
@@ -737,6 +877,10 @@ BROWSER_TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "question": {
                     "type": "string",
                     "description": "What you want to know about the page visually. Be specific about what you're looking for."
@@ -747,7 +891,7 @@ BROWSER_TOOL_SCHEMAS = [
                     "description": "If true, overlay numbered [N] labels on interactive elements. Each [N] maps to ref @eN for subsequent browser commands. Useful for QA and spatial reasoning about page layout."
                 }
             },
-            "required": ["question"]
+            "required": ["brief", "question"]
         }
     },
     {
@@ -756,6 +900,10 @@ BROWSER_TOOL_SCHEMAS = [
         "parameters": {
             "type": "object",
             "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
                 "clear": {
                     "type": "boolean",
                     "default": False,
@@ -766,7 +914,7 @@ BROWSER_TOOL_SCHEMAS = [
                     "description": "JavaScript expression to evaluate in the page context. Runs in the browser like DevTools console — full access to DOM, window, document. Return values are serialized to JSON. Example: 'document.title' or 'document.querySelectorAll(\"a\").length'"
                 }
             },
-            "required": []
+            "required": ["brief"]
         }
     },
 ]
@@ -1268,6 +1416,17 @@ def _truncate_snapshot(snapshot_text: str, max_chars: int = 8000) -> str:
 # Browser Tool Functions
 # ============================================================================
 
+
+# --- browser_enhanced integration ---
+def _is_enhanced_mode():
+    """Check if enhanced browser mode is available (camofox + browser_enhanced)."""
+    try:
+        from tools.browser_enhanced import camofox_view_page
+        from tools.browser_camofox import is_camofox_mode
+        return is_camofox_mode()
+    except ImportError:
+        return False
+
 def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
     """
     Navigate to a URL in the browser.
@@ -1461,7 +1620,7 @@ def browser_snapshot(
         }, ensure_ascii=False)
 
 
-def browser_click(ref: str, task_id: Optional[str] = None) -> str:
+def browser_click(ref: str = None, task_id: Optional[str] = None, index: int = None, coordinate_x: float = None, coordinate_y: float = None) -> str:
     """
     Click on an element.
     
@@ -1472,6 +1631,9 @@ def browser_click(ref: str, task_id: Optional[str] = None) -> str:
     Returns:
         JSON string with click result
     """
+    if _is_enhanced_mode() and (index is not None or coordinate_x is not None):
+        from tools.browser_enhanced import camofox_click_enhanced
+        return camofox_click_enhanced(ref=ref, index=index, coordinate_x=coordinate_x, coordinate_y=coordinate_y, task_id=task_id)
     if _is_camofox_mode():
         from tools.browser_camofox import camofox_click
         return camofox_click(ref, task_id)
@@ -1496,7 +1658,7 @@ def browser_click(ref: str, task_id: Optional[str] = None) -> str:
         }, ensure_ascii=False)
 
 
-def browser_type(ref: str, text: str, task_id: Optional[str] = None) -> str:
+def browser_type(ref: str = None, text: str = "", task_id: Optional[str] = None, index: int = None, coordinate_x: float = None, coordinate_y: float = None, press_enter: bool = False, clear_first: bool = True) -> str:
     """
     Type text into an input field.
     
@@ -1508,6 +1670,9 @@ def browser_type(ref: str, text: str, task_id: Optional[str] = None) -> str:
     Returns:
         JSON string with type result
     """
+    if _is_enhanced_mode() and (index is not None or coordinate_x is not None):
+        from tools.browser_enhanced import camofox_type_enhanced
+        return camofox_type_enhanced(text=text, ref=ref, index=index, coordinate_x=coordinate_x, coordinate_y=coordinate_y, press_enter=press_enter, clear_first=clear_first, task_id=task_id)
     if _is_camofox_mode():
         from tools.browser_camofox import camofox_type
         return camofox_type(ref, text, task_id)
@@ -1546,7 +1711,7 @@ def browser_scroll(direction: str, task_id: Optional[str] = None) -> str:
         JSON string with scroll result
     """
     # Validate direction
-    if direction not in ["up", "down"]:
+    if direction not in ["up", "down", "to_top", "to_bottom"]:
         return json.dumps({
             "success": False,
             "error": f"Invalid direction '{direction}'. Use 'up' or 'down'."
@@ -1557,6 +1722,9 @@ def browser_scroll(direction: str, task_id: Optional[str] = None) -> str:
     # ~500px is roughly half a viewport of travel.
     _SCROLL_PIXELS = 500
 
+    if _is_enhanced_mode() and direction in ("to_top", "to_bottom"):
+        from tools.browser_enhanced import camofox_scroll_enhanced
+        return camofox_scroll_enhanced(direction=direction, task_id=task_id)
     if _is_camofox_mode():
         from tools.browser_camofox import camofox_scroll
         # Camofox REST API doesn't support pixel args; use repeated calls
@@ -2324,7 +2492,7 @@ registry.register(
     name="browser_click",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_click"],
-    handler=lambda args, **kw: browser_click(ref=args.get("ref", ""), task_id=kw.get("task_id")),
+    handler=lambda args, **kw: browser_click(ref=args.get("ref"), task_id=kw.get("task_id"), index=args.get("index"), coordinate_x=args.get("coordinate_x"), coordinate_y=args.get("coordinate_y")),
     check_fn=check_browser_requirements,
     emoji="👆",
 )
@@ -2332,7 +2500,7 @@ registry.register(
     name="browser_type",
     toolset="browser",
     schema=_BROWSER_SCHEMA_MAP["browser_type"],
-    handler=lambda args, **kw: browser_type(ref=args.get("ref", ""), text=args.get("text", ""), task_id=kw.get("task_id")),
+    handler=lambda args, **kw: browser_type(ref=args.get("ref"), text=args.get("text", ""), task_id=kw.get("task_id"), index=args.get("index"), coordinate_x=args.get("coordinate_x"), coordinate_y=args.get("coordinate_y"), press_enter=args.get("press_enter", False), clear_first=args.get("clear_first", True)),
     check_fn=check_browser_requirements,
     emoji="⌨️",
 )
@@ -2384,4 +2552,74 @@ registry.register(
     handler=lambda args, **kw: browser_console(clear=args.get("clear", False), expression=args.get("expression"), task_id=kw.get("task_id")),
     check_fn=check_browser_requirements,
     emoji="🖥️",
+)
+
+# ---------------------------------------------------------------------------
+# Enhanced browser tools (ai-manus style)
+# ---------------------------------------------------------------------------
+
+def browser_view_page(task_id: Optional[str] = None) -> str:
+    """View current page with interactive elements and visible content."""
+    if _is_enhanced_mode():
+        from tools.browser_enhanced import camofox_view_page
+        return camofox_view_page(task_id)
+    # Fallback to snapshot
+    return browser_snapshot(task_id=task_id)
+
+
+def browser_select_option(index: int, option: int, task_id: Optional[str] = None) -> str:
+    """Select a dropdown option by element index and option index."""
+    if _is_enhanced_mode():
+        from tools.browser_enhanced import camofox_select_option
+        return camofox_select_option(index=index, option=option, task_id=task_id)
+    return json.dumps({"success": False, "error": "browser_select_option requires enhanced mode (Camofox)"})
+
+
+def browser_move_mouse(coordinate_x: float, coordinate_y: float, task_id: Optional[str] = None) -> str:
+    """Move mouse to coordinate."""
+    if _is_enhanced_mode():
+        from tools.browser_enhanced import camofox_move_mouse
+        return camofox_move_mouse(coordinate_x=coordinate_x, coordinate_y=coordinate_y, task_id=task_id)
+    return json.dumps({"success": False, "error": "browser_move_mouse requires enhanced mode (Camofox)"})
+
+
+def browser_restart(task_id: Optional[str] = None) -> str:
+    """Restart browser session."""
+    if _is_enhanced_mode():
+        from tools.browser_enhanced import camofox_restart
+        return camofox_restart(task_id)
+    return json.dumps({"success": False, "error": "browser_restart requires enhanced mode (Camofox)"})
+
+# --- Enhanced browser tools (ai-manus style) ---
+registry.register(
+    name="browser_view_page",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_view_page"],
+    handler=lambda args, **kw: browser_view_page(task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="👁️",
+)
+registry.register(
+    name="browser_select_option",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_select_option"],
+    handler=lambda args, **kw: browser_select_option(index=args.get("index", 0), option=args.get("option", 0), task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="📋",
+)
+registry.register(
+    name="browser_move_mouse",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_move_mouse"],
+    handler=lambda args, **kw: browser_move_mouse(coordinate_x=args.get("coordinate_x", 0), coordinate_y=args.get("coordinate_y", 0), task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="🖱️",
+)
+registry.register(
+    name="browser_restart",
+    toolset="browser",
+    schema=_BROWSER_SCHEMA_MAP["browser_restart"],
+    handler=lambda args, **kw: browser_restart(task_id=kw.get("task_id")),
+    check_fn=check_browser_requirements,
+    emoji="🔄",
 )

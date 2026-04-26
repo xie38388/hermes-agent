@@ -92,6 +92,7 @@ def _build_child_system_prompt(
     context: Optional[str] = None,
     *,
     workspace_path: Optional[str] = None,
+    output_schema: Optional[list] = None,
 ) -> str:
     """Build a focused system prompt for a child agent."""
     parts = [
@@ -106,6 +107,21 @@ def _build_child_system_prompt(
             "\nWORKSPACE PATH:\n"
             f"{workspace_path}\n"
             "Use this exact path for local repository/workdir operations unless the task explicitly says otherwise."
+        )
+    if output_schema:
+        schema_lines = []
+        for field in output_schema:
+            schema_lines.append(f"  - {field['name']} ({field['type']}): {field.get('description', '')}")
+        schema_block = "\n".join(schema_lines)
+        parts.append(
+            "\nREQUIRED OUTPUT FORMAT:\n"
+            "You MUST end your final summary with a JSON code block containing exactly these fields:\n"
+            f"{schema_block}\n"
+            "\nExample:\n"
+            "```json\n"
+            "{" + ", ".join(f'\"{f["name"]}\": <{f["type"]}>' for f in output_schema) + "}\n"
+            "```\n"
+            "This structured output is mandatory — do not omit any field."
         )
     parts.append(
         "\nComplete this task using the tools available to you. "
@@ -251,6 +267,7 @@ def _build_child_agent(
     # ACP transport overrides — lets a non-ACP parent spawn ACP child agents
     override_acp_command: Optional[str] = None,
     override_acp_args: Optional[List[str]] = None,
+    output_schema: Optional[list] = None,
 ):
     """
     Build a child AIAgent on the main thread (thread-safe construction).
@@ -291,7 +308,7 @@ def _build_child_agent(
         child_toolsets = _strip_blocked_tools(DEFAULT_TOOLSETS)
 
     workspace_hint = _resolve_workspace_hint(parent_agent)
-    child_prompt = _build_child_system_prompt(goal, context, workspace_path=workspace_hint)
+    child_prompt = _build_child_system_prompt(goal, context, workspace_path=workspace_hint, output_schema=output_schema)
     # Extract parent's API key so subagents inherit auth (e.g. Nous Portal).
     parent_api_key = getattr(parent_agent, "api_key", None)
     if (not parent_api_key) and hasattr(parent_agent, "_client_kwargs"):
@@ -628,6 +645,7 @@ def delegate_task(
     max_iterations: Optional[int] = None,
     acp_command: Optional[str] = None,
     acp_args: Optional[List[str]] = None,
+    output_schema: Optional[list] = None,
     parent_agent=None,
 ) -> str:
     """
@@ -680,7 +698,7 @@ def delegate_task(
             )
         task_list = tasks
     elif goal and isinstance(goal, str) and goal.strip():
-        task_list = [{"goal": goal, "context": context, "toolsets": toolsets}]
+        task_list = [{"goal": goal, "context": context, "toolsets": toolsets, "output_schema": output_schema}]
     else:
         return tool_error("Provide either 'goal' (single task) or 'tasks' (batch).")
 
@@ -720,6 +738,7 @@ def delegate_task(
                 override_api_mode=creds["api_mode"],
                 override_acp_command=t.get("acp_command") or acp_command,
                 override_acp_args=t.get("acp_args") or acp_args,
+                output_schema=t.get("output_schema"),
             )
             # Override with correct parent tool names (before child construction mutated global)
             child._delegate_saved_tool_names = _parent_tool_names
@@ -991,6 +1010,10 @@ DELEGATE_TASK_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "goal": {
                 "type": "string",
                 "description": (
@@ -1040,8 +1063,25 @@ DELEGATE_TASK_SCHEMA = {
                             "items": {"type": "string"},
                             "description": "Per-task ACP args override.",
                         },
+                        "output_schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {"type": "string", "description": "Field name (snake_case)"},
+                                    "type": {"type": "string", "enum": ["string", "number", "boolean"], "description": "Data type"},
+                                    "description": {"type": "string", "description": "What this field contains"},
+                                },
+                                "required": ["name", "type", "description"],
+                            },
+                            "description": (
+                                "Optional structured output schema. When provided, the subagent "
+                                "MUST return a JSON object with exactly these fields in its final "
+                                "summary. This ensures batch results are uniform and machine-parseable."
+                            ),
+                        },
                     },
-                    "required": ["goal"],
+                    "required": ["brief", "goal"],
                 },
                 # No maxItems — the runtime limit is configurable via
                 # delegation.max_concurrent_children (default 3) and
@@ -1076,6 +1116,23 @@ DELEGATE_TASK_SCHEMA = {
                     "Only used when acp_command is set. Example: ['--acp', '--stdio', '--model', 'claude-opus-4-6']"
                 ),
             },
+            "output_schema": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Field name (snake_case)"},
+                        "type": {"type": "string", "enum": ["string", "number", "boolean"], "description": "Data type"},
+                        "description": {"type": "string", "description": "What this field contains"},
+                    },
+                    "required": ["name", "type", "description"],
+                },
+                "description": (
+                    "Optional structured output schema for single-task mode. When provided, the subagent "
+                    "MUST return a JSON object with exactly these fields in its final "
+                    "summary. Ensures results are uniform and machine-parseable."
+                ),
+            },
         },
         "required": [],
     },
@@ -1097,6 +1154,7 @@ registry.register(
         max_iterations=args.get("max_iterations"),
         acp_command=args.get("acp_command"),
         acp_args=args.get("acp_args"),
+        output_schema=args.get("output_schema"),
         parent_agent=kw.get("parent_agent")),
     check_fn=check_delegate_requirements,
     emoji="🔀",

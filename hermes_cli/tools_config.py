@@ -65,6 +65,7 @@ CONFIGURABLE_TOOLSETS = [
     ("cronjob",         "⏰ Cron Jobs",                 "create/list/update/pause/resume/run, with optional attached skills"),
     ("rl",              "🧪 RL Training",               "Tinker-Atropos training tools"),
     ("homeassistant",    "🏠 Home Assistant",           "smart home device control"),
+    ("presenton",       "📊 Presentation Generation", "generate PPTX presentations"),
 ]
 
 # Toolsets that are OFF by default for new installs.

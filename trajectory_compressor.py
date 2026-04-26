@@ -549,6 +549,11 @@ Write the summary from a neutral perspective describing what the assistant did a
 2. Key information or results obtained
 3. Any important decisions or findings
 4. Relevant data, file names, values, or outputs
+5. ALL errors, failures, and exceptions encountered — include the error message, which tool/action failed, and what was tried
+6. Any approaches that were attempted but did NOT work — so the agent avoids repeating them
+
+CRITICAL: Error preservation is mandatory. If any tool call returned an error, any command failed, or any approach was abandoned, you MUST include it in the summary with enough detail to prevent the agent from retrying the same failed approach. Format errors as:
+- FAILED: [action] → [error message] → [what was tried instead]
 
 Keep the summary factual and informative. Target approximately {self.config.summary_target_tokens} tokens.
 
@@ -611,6 +616,11 @@ Write the summary from a neutral perspective describing what the assistant did a
 2. Key information or results obtained
 3. Any important decisions or findings
 4. Relevant data, file names, values, or outputs
+5. ALL errors, failures, and exceptions encountered — include the error message, which tool/action failed, and what was tried
+6. Any approaches that were attempted but did NOT work — so the agent avoids repeating them
+
+CRITICAL: Error preservation is mandatory. If any tool call returned an error, any command failed, or any approach was abandoned, you MUST include it in the summary with enough detail to prevent the agent from retrying the same failed approach. Format errors as:
+- FAILED: [action] → [error message] → [what was tried instead]
 
 Keep the summary factual and informative. Target approximately {self.config.summary_target_tokens} tokens.
 

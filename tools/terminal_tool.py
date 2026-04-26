@@ -1714,6 +1714,10 @@ TERMINAL_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "command": {
                 "type": "string",
                 "description": "The command to execute on the VM"
@@ -1726,7 +1730,8 @@ TERMINAL_SCHEMA = {
             "timeout": {
                 "type": "integer",
                 "description": f"Max seconds to wait (default: 180, foreground max: {FOREGROUND_MAX_TIMEOUT}). Returns INSTANTLY when command finishes — set high for long tasks, you won't wait unnecessarily. Foreground timeout above {FOREGROUND_MAX_TIMEOUT}s is rejected; use background=true for longer commands.",
-                "minimum": 1
+                "minimum": 1,
+                "default": 180
             },
             "workdir": {
                 "type": "string",
@@ -1748,7 +1753,7 @@ TERMINAL_SCHEMA = {
                 "description": "List of strings to watch for in background process output. When any pattern matches a line of output, you'll be notified with the matching text — like notify_on_complete but triggers mid-process on specific output. Use for monitoring logs, watching for errors, or waiting for specific events (e.g. [\"ERROR\", \"FAIL\", \"listening on port\"])."
             }
         },
-        "required": ["command"]
+        "required": ["brief", "command"]
     }
 }
 

@@ -1604,6 +1604,8 @@ class APIServerAdapter(BasePlatformAdapter):
 
         def _callback(event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs):
             logger.info('[EVENT_CB] event_type=%s tool=%s run=%s kwargs_keys=%s', event_type, tool_name, run_id, list(kwargs.keys()))
+            if event_type == "tool.completed" and tool_name == "image_generate":
+                logger.info('[IMAGE_DEBUG] is_error=%s result_preview=%s', kwargs.get('is_error'), str(kwargs.get('result', ''))[:500])
             ts = time.time()
             if event_type == "tool.started":
                 evt = {

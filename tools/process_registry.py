@@ -1100,6 +1100,10 @@ PROCESS_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "action": {
                 "type": "string",
                 "enum": ["list", "poll", "log", "wait", "kill", "write", "submit", "close"],
@@ -1128,7 +1132,7 @@ PROCESS_SCHEMA = {
                 "minimum": 1
             }
         },
-        "required": ["action"]
+        "required": ["brief", "action"]
     }
 }
 
