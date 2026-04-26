@@ -361,8 +361,13 @@ OPENROUTER_IMAGE_MODEL = "openai/gpt-5.4-image-2"
 
 def _upload_base64_image(data_url: str) -> Optional[str]:
     """
-    Upload a base64 data URL image to Fal.ai CDN and return an HTTP URL.
-    Falls back to returning the data URL if upload fails.
+    Process a base64 data URL image:
+    1. Decode the base64 data
+    2. Save to the generated files directory
+    3. Try uploading to Fal CDN; if that fails, return gateway-relative path
+    4. Last resort: return the raw data URL for direct browser rendering
+
+    The gateway's _handle_serve_file endpoint serves files from /tmp/hermes_generated/.
     """
     try:
         # Parse data URL: data:image/png;base64,iVBOR...
@@ -372,26 +377,38 @@ def _upload_base64_image(data_url: str) -> Optional[str]:
         img_bytes = base64.b64decode(b64data)
         logger.info("Decoded base64 image: %d bytes, mime=%s", len(img_bytes), mime)
 
-        # Try uploading via fal_client
-        try:
-            url = fal_client.upload(img_bytes, content_type=mime)
-            if url:
-                logger.info("Uploaded to Fal CDN: %s", url[:80])
-                return url
-        except Exception as e:
-            logger.warning("Fal upload failed: %s", e)
+        # Save to the generated files directory
+        gen_dir = "/tmp/hermes_generated"
+        os.makedirs(gen_dir, exist_ok=True)
 
-        # Fallback: save to temp file and return local path (not ideal but functional)
-        import tempfile
         ext = mime.split("/")[-1] if "/" in mime else "png"
-        tmp = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False, dir="/tmp")
-        tmp.write(img_bytes)
-        tmp.close()
-        logger.info("Saved image locally: %s", tmp.name)
-        return tmp.name
+        if ext == "jpeg":
+            ext = "jpg"
+        import uuid as _uuid
+        filename = f"img_{_uuid.uuid4().hex[:12]}.{ext}"
+        filepath = os.path.join(gen_dir, filename)
+
+        with open(filepath, "wb") as fout:
+            fout.write(img_bytes)
+        logger.info("Saved generated image: %s (%d bytes)", filepath, len(img_bytes))
+
+        # Try uploading via fal_client (best case: get a CDN URL)
+        try:
+            cdn_url = fal_client.upload(img_bytes, content_type=mime)
+            if cdn_url and cdn_url.startswith("http"):
+                logger.info("Uploaded to Fal CDN: %s", cdn_url[:80])
+                return cdn_url
+        except Exception as e:
+            logger.warning("Fal CDN upload failed (non-fatal): %s", e)
+
+        # Return the gateway-relative path for /v1/files/ endpoint
+        return f"/v1/files/{filename}"
 
     except Exception as e:
         logger.warning("Failed to process base64 image: %s", e)
+        # Last resort: return the raw data URL (browsers can render it directly)
+        if data_url and len(data_url) < 10_000_000:  # < 10MB
+            return data_url
         return None
 
 
@@ -483,11 +500,22 @@ def _generate_via_openrouter(prompt: str, aspect_ratio: str = "landscape") -> Op
 
             # If it's a base64 data URL, upload to get HTTP URL
             if raw_url.startswith("data:"):
-                logger.info("Got base64 image, uploading to CDN...")
-                http_url = _upload_base64_image(raw_url)
-                if http_url:
-                    logger.info("OpenRouter image generated and uploaded successfully")
-                    return http_url
+                logger.info("Got base64 image, processing...")
+                result_url = _upload_base64_image(raw_url)
+                if result_url:
+                    # If it's a relative /v1/files/ path, construct full gateway URL
+                    if result_url.startswith("/v1/files/"):
+                        gateway_port = os.getenv("API_SERVER_PORT", "8642")
+                        gateway_host = os.getenv("API_SERVER_HOST", "0.0.0.0")
+                        if gateway_host == "0.0.0.0":
+                            gateway_host = "localhost"
+                        result_url = f"http://{gateway_host}:{gateway_port}{result_url}"
+                        logger.info("Image served via gateway: %s", result_url)
+                    elif result_url.startswith("data:"):
+                        logger.info("Returning base64 data URL directly")
+                    else:
+                        logger.info("Image uploaded to CDN: %s", result_url[:80])
+                    return result_url
             else:
                 # Already an HTTP URL
                 logger.info("OpenRouter image generated successfully")
@@ -836,6 +864,10 @@ IMAGE_GENERATE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
+            "brief": {
+                "type": "string",
+                "description": "A one-sentence preamble describing the purpose of this operation"
+            },
             "prompt": {
                 "type": "string",
                 "description": "The text prompt describing the desired image. Be detailed and descriptive."
@@ -847,7 +879,7 @@ IMAGE_GENERATE_SCHEMA = {
                 "default": "landscape"
             }
         },
-        "required": ["prompt"]
+        "required": ["brief", "prompt"]
     }
 }
 

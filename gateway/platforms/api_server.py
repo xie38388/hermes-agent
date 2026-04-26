@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 # Default settings
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8642
+MAX_PORT_ATTEMPTS = 20  # Self-healing: try up to 20 ports before giving up
 MAX_STORED_RESPONSES = 100
 MAX_REQUEST_BYTES = 1_000_000  # 1 MB default limit for POST bodies
 CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
@@ -393,6 +394,8 @@ class APIServerAdapter(BasePlatformAdapter):
         self._run_streams: Dict[str, "asyncio.Queue[Optional[Dict]]"] = {}
         # Creation timestamps for orphaned-run TTL sweep
         self._run_streams_created: Dict[str, float] = {}
+        # Active run asyncio tasks: run_id -> asyncio.Task (for cancel support)
+        self._run_tasks: Dict[str, "asyncio.Task[None]"] = {}
         self._session_db: Optional[Any] = None  # Lazy-init SessionDB for session continuity
 
     @staticmethod
@@ -429,6 +432,40 @@ class APIServerAdapter(BasePlatformAdapter):
         except Exception:
             pass
         return "hermes-agent"
+
+    @staticmethod
+    def _find_available_port(preferred: int, host: str, max_attempts: int = MAX_PORT_ATTEMPTS) -> int:
+        """Try *preferred* first, then preferred+1 … preferred+max_attempts-1.
+
+        Returns the first port that is free (not listening).  Raises RuntimeError
+        if all candidates are occupied.
+
+        This mirrors Manus's ``findAvailablePort()`` self-healing pattern so that
+        multi-instance or dev scenarios don't fail on port conflicts.
+        """
+        for offset in range(max_attempts):
+            candidate = preferred + offset
+            if candidate > 65535:
+                break
+            try:
+                with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    s.connect((host if host != "0.0.0.0" else "127.0.0.1", candidate))
+                # Connection succeeded → port is in use
+                logger.debug("Port %d in use, trying next", candidate)
+                continue
+            except (ConnectionRefusedError, OSError):
+                # Connection refused → port is free
+                if offset > 0:
+                    logger.info(
+                        "Preferred port %d in use; auto-selected port %d (offset +%d)",
+                        preferred, candidate, offset,
+                    )
+                return candidate
+        raise RuntimeError(
+            f"All {max_attempts} ports ({preferred}–{preferred + max_attempts - 1}) are in use. "
+            f"Free a port or set a different base port via API_SERVER_PORT."
+        )
 
     def _cors_headers_for_origin(self, origin: str) -> Optional[Dict[str, str]]:
         """Return CORS headers for an allowed browser origin."""
@@ -514,6 +551,7 @@ class APIServerAdapter(BasePlatformAdapter):
         session_id: Optional[str] = None,
         stream_delta_callback=None,
         tool_progress_callback=None,
+        extra_mcp_servers: Optional[Dict[str, dict]] = None,
     ) -> Any:
         """
         Create an AIAgent instance using the gateway's runtime config.
@@ -526,6 +564,17 @@ class APIServerAdapter(BasePlatformAdapter):
         from run_agent import AIAgent
         from gateway.run import _resolve_runtime_agent_kwargs, _resolve_gateway_model, _load_gateway_config
         from hermes_cli.tools_config import _get_platform_tools
+        # Register per-run MCP servers before resolving tools
+        if extra_mcp_servers:
+            try:
+                from tools.mcp_tool import register_mcp_servers
+                registered = register_mcp_servers(extra_mcp_servers)
+                logger.info(
+                    "[api_server] Registered %d per-run MCP tool(s) from %d server(s)",
+                    len(registered), len(extra_mcp_servers),
+                )
+            except Exception as exc:
+                logger.warning("[api_server] Failed to register per-run MCP servers: %s", exc)
 
         runtime_kwargs = _resolve_runtime_agent_kwargs()
         model = _resolve_gateway_model()
@@ -1400,6 +1449,39 @@ class APIServerAdapter(BasePlatformAdapter):
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+
+    async def _handle_job_history(self, request: "web.Request") -> "web.Response":
+        """GET /api/jobs/{job_id}/history — get execution history for a cron job."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        cron_err = self._check_jobs_available()
+        if cron_err:
+            return cron_err
+        job_id, id_err = self._check_job_id(request)
+        if id_err:
+            return id_err
+        try:
+            from pathlib import Path
+            output_dir = Path.home() / ".hermes" / "cron" / "output" / job_id
+            history = []
+            if output_dir.exists():
+                limit = int(request.query.get("limit", "20"))
+                limit = min(max(limit, 1), 100)
+                for f in sorted(output_dir.glob("*.md"), reverse=True)[:limit]:
+                    try:
+                        content_text = f.read_text(encoding="utf-8")[:10000]
+                    except Exception:
+                        content_text = "(unreadable)"
+                    history.append({
+                        "timestamp": f.stem,
+                        "content": content_text,
+                        "size_bytes": f.stat().st_size,
+                    })
+            return web.json_response({"job_id": job_id, "history": history, "count": len(history)})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     # ------------------------------------------------------------------
     # Output extraction helper
     # ------------------------------------------------------------------
@@ -1491,7 +1573,7 @@ class APIServerAdapter(BasePlatformAdapter):
             result = agent.run_conversation(
                 user_message=user_message,
                 conversation_history=conversation_history,
-                task_id="default",
+                task_id=session_id or "default",
             )
             usage = {
                 "input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
@@ -1521,24 +1603,45 @@ class APIServerAdapter(BasePlatformAdapter):
                 pass
 
         def _callback(event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs):
+            logger.info('[EVENT_CB] event_type=%s tool=%s run=%s kwargs_keys=%s', event_type, tool_name, run_id, list(kwargs.keys()))
             ts = time.time()
             if event_type == "tool.started":
-                _push({
+                evt = {
                     "event": "tool.started",
                     "run_id": run_id,
                     "timestamp": ts,
                     "tool": tool_name,
                     "preview": preview,
-                })
+                }
+                # Include args when available (needed for todo/plan tracking)
+                if args is not None:
+                    import json as _json
+                    try:
+                        evt["args"] = _json.loads(_json.dumps(args))
+                    except (TypeError, ValueError):
+                        evt["args"] = str(args)
+                _push(evt)
             elif event_type == "tool.completed":
-                _push({
+                evt = {
                     "event": "tool.completed",
                     "run_id": run_id,
                     "timestamp": ts,
                     "tool": tool_name,
                     "duration": round(kwargs.get("duration", 0), 3),
                     "error": kwargs.get("is_error", False),
-                })
+                }
+                # Include tool result and args when available
+                if kwargs.get("result") is not None:
+                    result_str = str(kwargs["result"])
+                    # Cap result at 50KB to avoid oversized SSE frames
+                    evt["result"] = result_str[:50000] if len(result_str) > 50000 else result_str
+                if kwargs.get("args") is not None:
+                    import json as _json
+                    try:
+                        evt["args"] = _json.loads(_json.dumps(kwargs["args"]))
+                    except (TypeError, ValueError):
+                        evt["args"] = str(kwargs["args"])
+                _push(evt)
             elif event_type == "reasoning.available":
                 _push({
                     "event": "reasoning.available",
@@ -1645,6 +1748,15 @@ class APIServerAdapter(BasePlatformAdapter):
 
         session_id = body.get("session_id") or run_id
         ephemeral_system_prompt = instructions
+        # Per-run MCP servers: allows callers to inject user-specific MCP
+        # server URLs (e.g., per-user Composio MCP endpoints) so each run
+        # uses the correct user's tool connections.
+        per_run_mcp = body.get("mcp_servers")
+        if per_run_mcp and not isinstance(per_run_mcp, dict):
+            return web.json_response(
+                _openai_error("'mcp_servers' must be a dict of {name: {url: ...}}"),
+                status=400,
+            )
 
         async def _run_and_close():
             try:
@@ -1653,12 +1765,13 @@ class APIServerAdapter(BasePlatformAdapter):
                     session_id=session_id,
                     stream_delta_callback=_text_cb,
                     tool_progress_callback=event_cb,
+                    extra_mcp_servers=per_run_mcp,
                 )
                 def _run_sync():
                     r = agent.run_conversation(
                         user_message=user_message,
                         conversation_history=conversation_history,
-                        task_id="default",
+                        task_id=session_id or "default",
                     )
                     u = {
                         "input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
@@ -1703,6 +1816,44 @@ class APIServerAdapter(BasePlatformAdapter):
             task.add_done_callback(self._background_tasks.discard)
 
         return web.json_response({"run_id": run_id, "status": "started"}, status=202)
+
+
+    async def _handle_cancel_run(self, request: "web.Request") -> "web.Response":
+        """POST /v1/runs/{run_id}/cancel — Cancel a running agent task."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        run_id = request.match_info["run_id"]
+        task = self._run_tasks.get(run_id)
+        q = self._run_streams.get(run_id)
+        if not task and not q:
+            return web.json_response(
+                _openai_error(f"Run not found: {run_id}", code="run_not_found"),
+                status=404,
+            )
+        # Cancel the asyncio task (will raise CancelledError in _run_and_close)
+        if task and not task.done():
+            task.cancel()
+        # Push a cancelled event + sentinel to the SSE queue
+        if q:
+            try:
+                q.put_nowait({
+                    "event": "run.cancelled",
+                    "run_id": run_id,
+                    "timestamp": time.time(),
+                })
+            except Exception:
+                pass
+            try:
+                q.put_nowait(None)  # sentinel to close SSE stream
+            except Exception:
+                pass
+        # Cleanup
+        self._run_tasks.pop(run_id, None)
+        self._run_streams.pop(run_id, None)
+        self._run_streams_created.pop(run_id, None)
+        logger.info("[api_server] Run %s cancelled by client", run_id)
+        return web.json_response({"run_id": run_id, "status": "cancelled"})
 
     async def _handle_run_events(self, request: "web.Request") -> "web.StreamResponse":
         """GET /v1/runs/{run_id}/events — SSE stream of structured agent lifecycle events."""
@@ -1753,6 +1904,96 @@ class APIServerAdapter(BasePlatformAdapter):
 
         return response
 
+
+    async def _handle_vnc_ws(self, request: "web.Request") -> "web.WebSocketResponse":
+        """GET /v1/vnc/ws — WebSocket proxy to local websockify (VNC)."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        import aiohttp as _aiohttp
+
+        ws_server = web.WebSocketResponse(protocols=["binary"])
+        await ws_server.prepare(request)
+
+        # Ensure Camofox has an active tab for VNC viewing
+        try:
+            async with _aiohttp.ClientSession() as _prep_session:
+                # Check if there are active tabs
+                _health = await _prep_session.get("http://127.0.0.1:9377/health", timeout=_aiohttp.ClientTimeout(total=3))
+                _health_data = await _health.json()
+                if _health_data.get("activeTabs", 0) == 0:
+                    # No active tabs — open a blank tab so VNC shows something
+                    _url = request.query.get("url", "about:blank")
+                    logger.info("[api_server] VNC prepare: no active tabs, opening %s", _url)
+                    await _prep_session.post(
+                        "http://127.0.0.1:9377/tabs",
+                        json={"userId": "vnc-takeover", "sessionKey": "vnc", "url": _url},
+                        timeout=_aiohttp.ClientTimeout(total=15),
+                    )
+                    # Wait for page to load, then resize window to fill Xvfb
+                    import asyncio as _asyncio
+                    await _asyncio.sleep(3)
+                    import subprocess as _sp
+                    _sp.Popen(["/bin/bash", "/home/ubuntu/resize_windows.sh"])
+                    logger.info("[api_server] VNC prepare: tab opened and resize triggered")
+        except Exception as _prep_err:
+            logger.warning("[api_server] VNC prepare: failed to ensure tab: %s", _prep_err)
+
+        # Connect to local websockify
+        vnc_url = "ws://127.0.0.1:6080/"
+        try:
+            session = _aiohttp.ClientSession()
+            ws_client = await session.ws_connect(vnc_url, protocols=["binary"])
+        except Exception as exc:
+            logger.error("[api_server] VNC proxy: cannot connect to websockify: %s", exc)
+            await ws_server.close(code=1011, message=b"VNC backend unavailable")
+            return ws_server
+
+        async def _forward_server_to_client():
+            try:
+                async for msg in ws_client:
+                    if msg.type == _aiohttp.WSMsgType.BINARY:
+                        await ws_server.send_bytes(msg.data)
+                    elif msg.type == _aiohttp.WSMsgType.TEXT:
+                        await ws_server.send_str(msg.data)
+                    elif msg.type in (_aiohttp.WSMsgType.CLOSE, _aiohttp.WSMsgType.CLOSING, _aiohttp.WSMsgType.CLOSED):
+                        break
+                    elif msg.type == _aiohttp.WSMsgType.ERROR:
+                        break
+            except Exception:
+                pass
+            finally:
+                if not ws_server.closed:
+                    await ws_server.close()
+
+        async def _forward_client_to_server():
+            try:
+                async for msg in ws_server:
+                    if msg.type == _aiohttp.WSMsgType.BINARY:
+                        await ws_client.send_bytes(msg.data)
+                    elif msg.type == _aiohttp.WSMsgType.TEXT:
+                        await ws_client.send_str(msg.data)
+                    elif msg.type in (_aiohttp.WSMsgType.CLOSE, _aiohttp.WSMsgType.CLOSING, _aiohttp.WSMsgType.CLOSED):
+                        break
+                    elif msg.type == _aiohttp.WSMsgType.ERROR:
+                        break
+            except Exception:
+                pass
+            finally:
+                if not ws_client.closed:
+                    await ws_client.close()
+                await session.close()
+
+        # Run both directions concurrently
+        await asyncio.gather(
+            _forward_server_to_client(),
+            _forward_client_to_server(),
+            return_exceptions=True,
+        )
+
+        return ws_server
+
     async def _sweep_orphaned_runs(self) -> None:
         """Periodically clean up run streams that were never consumed."""
         while True:
@@ -1771,6 +2012,25 @@ class APIServerAdapter(BasePlatformAdapter):
     # ------------------------------------------------------------------
     # BasePlatformAdapter interface
     # ------------------------------------------------------------------
+
+
+    # ---- Static file serving for generated images ----
+    GENERATED_FILES_DIR = "/tmp/hermes_generated"
+
+    async def _handle_serve_file(self, request: web.Request) -> web.Response:
+        """Serve generated files (images, etc.) from the local temp directory."""
+        filename = request.match_info.get("filename", "")
+        if not filename or ".." in filename or "/" in filename:
+            return web.json_response({"error": "Invalid filename"}, status=400)
+        filepath = os.path.join(self.GENERATED_FILES_DIR, filename)
+        if not os.path.isfile(filepath):
+            return web.json_response({"error": "File not found"}, status=404)
+        # Guess content type
+        ext = os.path.splitext(filename)[1].lower()
+        ct_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                   ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
+        content_type = ct_map.get(ext, "application/octet-stream")
+        return web.FileResponse(filepath, headers={"Content-Type": content_type, "Cache-Control": "public, max-age=86400"})
 
     async def connect(self) -> bool:
         """Start the aiohttp web server."""
@@ -1798,9 +2058,13 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/api/jobs/{job_id}/pause", self._handle_pause_job)
             self._app.router.add_post("/api/jobs/{job_id}/resume", self._handle_resume_job)
             self._app.router.add_post("/api/jobs/{job_id}/run", self._handle_run_job)
+            self._app.router.add_get("/api/jobs/{job_id}/history", self._handle_job_history)
             # Structured event streaming
             self._app.router.add_post("/v1/runs", self._handle_runs)
             self._app.router.add_get("/v1/runs/{run_id}/events", self._handle_run_events)
+            self._app.router.add_get("/v1/vnc/ws", self._handle_vnc_ws)
+            self._app.router.add_get("/v1/files/{filename}", self._handle_serve_file)
+            self._app.router.add_post("/v1/runs/{run_id}/cancel", self._handle_cancel_run)
             # Start background sweep to clean up orphaned (unconsumed) run streams
             sweep_task = asyncio.create_task(self._sweep_orphaned_runs())
             try:
@@ -1836,15 +2100,12 @@ class APIServerAdapter(BasePlatformAdapter):
                 except ImportError:
                     pass
 
-            # Port conflict detection — fail fast if port is already in use
+            # Self-healing port allocation (mechanism 52) — try up to MAX_PORT_ATTEMPTS ports
             try:
-                with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _s:
-                    _s.settimeout(1)
-                    _s.connect(('127.0.0.1', self._port))
-                logger.error('[%s] Port %d already in use. Set a different port in config.yaml: platforms.api_server.port', self.name, self._port)
+                self._port = self._find_available_port(self._port, self._host)
+            except RuntimeError as port_err:
+                logger.error('[%s] %s', self.name, port_err)
                 return False
-            except (ConnectionRefusedError, OSError):
-                pass  # port is free
 
             self._runner = web.AppRunner(self._app)
             await self._runner.setup()
