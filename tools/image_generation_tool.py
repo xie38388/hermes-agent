@@ -412,6 +412,46 @@ def _upload_base64_image(data_url: str) -> Optional[str]:
         return None
 
 
+
+# Cache for public IP detection
+_cached_public_ip = None
+
+def _get_public_gateway_host() -> str:
+    """
+    Get the public-facing host for the gateway.
+    Tries: HERMES_AGENT_URL env -> ipify API -> API_SERVER_HOST env -> fallback to IP detection.
+    Result is cached after first successful detection.
+    """
+    global _cached_public_ip
+    if _cached_public_ip:
+        return _cached_public_ip
+    # 1. Check HERMES_AGENT_URL (set by Manus webapp)
+    agent_url = os.getenv("HERMES_AGENT_URL", "")
+    if agent_url:
+        # Extract host from URL like http://98.83.199.178:8642
+        import urllib.parse
+        parsed = urllib.parse.urlparse(agent_url)
+        if parsed.hostname and parsed.hostname not in ("localhost", "127.0.0.1", "0.0.0.0"):
+            _cached_public_ip = parsed.hostname
+            logger.info("Public gateway host from HERMES_AGENT_URL: %s", _cached_public_ip)
+            return _cached_public_ip
+    # 2. Try ipify API
+    try:
+        resp = requests.get("https://api.ipify.org", timeout=5)
+        if resp.status_code == 200 and resp.text.strip():
+            _cached_public_ip = resp.text.strip()
+            logger.info("Public gateway host from ipify: %s", _cached_public_ip)
+            return _cached_public_ip
+    except Exception:
+        pass
+    # 3. Fall back to API_SERVER_HOST
+    host = os.getenv("API_SERVER_HOST", "0.0.0.0")
+    if host in ("0.0.0.0", "localhost", "127.0.0.1"):
+        host = "localhost"  # Last resort
+    _cached_public_ip = host
+    logger.info("Public gateway host fallback: %s", _cached_public_ip)
+    return _cached_public_ip
+
 def _generate_via_openrouter(prompt: str, aspect_ratio: str = "landscape") -> Optional[str]:
     """
     Generate an image via OpenRouter using GPT-5.4 Image 2.
@@ -506,9 +546,7 @@ def _generate_via_openrouter(prompt: str, aspect_ratio: str = "landscape") -> Op
                     # If it's a relative /v1/files/ path, construct full gateway URL
                     if result_url.startswith("/v1/files/"):
                         gateway_port = os.getenv("API_SERVER_PORT", "8642")
-                        gateway_host = os.getenv("API_SERVER_HOST", "0.0.0.0")
-                        if gateway_host == "0.0.0.0":
-                            gateway_host = "localhost"
+                        gateway_host = _get_public_gateway_host()
                         result_url = f"http://{gateway_host}:{gateway_port}{result_url}"
                         logger.info("Image served via gateway: %s", result_url)
                     elif result_url.startswith("data:"):
