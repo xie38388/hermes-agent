@@ -17,11 +17,13 @@ It does NOT own:
 
 from openai import OpenAI
 import logging
+import os
 import threading
 from typing import Any, Optional, TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from agent.error_classifier import FailoverReason
+# Runtime import needed for FailoverReason enum comparisons
+from agent.error_classifier import FailoverReason
+from agent.shared_utils import _qwen_portal_headers
 
 logger = logging.getLogger(__name__)
 

@@ -5,8 +5,19 @@ Extracted from run_agent.py to isolate context/memory management.
 """
 import logging
 from typing import Any, Dict, List, Optional
+import datetime
+import json
+import os
+import time
+import uuid
+from agent.model_metadata import estimate_messages_tokens_rough, estimate_tokens_rough
 
 logger = logging.getLogger(__name__)
+
+def _get_ai_agent_class():
+    """Lazy import to avoid circular dependency."""
+    from run_agent import AIAgent
+    return AIAgent
 
 
 class ContextManagerMixin:
@@ -277,7 +288,7 @@ class ContextManagerMixin:
                 # Clear class-level dedup for this session so a fresh
                 # warning cycle can start if context grows again.
                 _sid = self.session_id or "default"
-                AIAgent._context_pressure_last_warned.pop(_sid, None)
+                _get_ai_agent_class()._context_pressure_last_warned.pop(_sid, None)
 
         # Clear the file-read dedup cache.  After compression the original
         # read content is summarised away — if the model re-reads the same

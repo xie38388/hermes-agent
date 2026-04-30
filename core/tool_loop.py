@@ -23,6 +23,21 @@ import threading
 import time
 import traceback
 from typing import Any, Dict, List, Optional, Tuple
+import os
+import random
+from model_tools import handle_function_call
+from tools.terminal_tool import get_active_env
+from tools.tool_result_storage import maybe_persist_tool_result, enforce_turn_budget
+from agent.serialization_variation import apply_serialization_variation
+from agent.shared_utils import _should_parallelize_tool_batch, _is_destructive_command
+from agent.display import (
+    KawaiiSpinner, build_tool_preview as _build_tool_preview,
+    get_cute_tool_message as _get_cute_tool_message_impl,
+    _detect_tool_failure,
+    get_tool_emoji as _get_tool_emoji,
+)
+
+_MAX_TOOL_WORKERS = 8
 
 logger = logging.getLogger(__name__)
 

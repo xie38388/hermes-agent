@@ -24,6 +24,12 @@ import time
 import traceback
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+import base64
+import tempfile
+import uuid
+from types import SimpleNamespace
+from agent.prompt_builder import DEFAULT_AGENT_IDENTITY, DEVELOPER_ROLE_MODELS
+from agent.model_metadata import is_local_endpoint
 
 logger = logging.getLogger(__name__)
 

@@ -5,6 +5,7 @@ Extracted from run_agent.py to isolate streaming concerns.
 """
 import logging
 from typing import Any, Dict, Optional
+import re
 
 logger = logging.getLogger(__name__)
 
