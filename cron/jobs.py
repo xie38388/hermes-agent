@@ -275,7 +275,8 @@ def _compute_grace_seconds(schedule: dict) -> int:
             period_seconds = int((second - first).total_seconds())
             grace = period_seconds // 2
             return max(MIN_GRACE, min(grace, MAX_GRACE))
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "jobs._compute_grace_seconds", e, exc_info=True)
             pass
 
     return MIN_GRACE

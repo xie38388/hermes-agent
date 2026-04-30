@@ -172,7 +172,8 @@ def _patch_get_stream_tolerance():
         async def _tolerant(self, client, read_stream_writer):
             try:
                 await _orig(self, client, read_stream_writer)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "mcp_tool._tolerant", e, exc_info=True)
                 pass
             # Original returned or raised -- wait silently so TaskGroup
             # stays alive and POST request/response continues working.
@@ -1135,7 +1136,8 @@ def _snapshot_child_pids() -> set:
     try:
         import psutil
         return {c.pid for c in psutil.Process(my_pid).children()}
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "mcp_tool._snapshot_child_pids", e, exc_info=True)
         pass
 
     return set()
@@ -1221,7 +1223,8 @@ def _load_mcp_config() -> Dict[str, dict]:
         try:
             from hermes_cli.env_loader import load_hermes_dotenv
             load_hermes_dotenv()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "mcp_tool._load_mcp_config", e, exc_info=True)
             pass
         return {name: _interpolate_env_vars(cfg) for name, cfg in servers.items()}
     except Exception as exc:
@@ -2268,7 +2271,8 @@ def _stop_mcp_loop():
             thread.join(timeout=5)
         try:
             loop.close()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "mcp_tool._stop_mcp_loop", e, exc_info=True)
             pass
         # After closing the loop, any stdio subprocesses that survived the
         # graceful shutdown are now orphaned.  Force-kill them.

@@ -63,7 +63,8 @@ def _kill_port_process(port: int) -> None:
                     ["fuser", "-k", f"{port}/tcp"],
                     capture_output=True, timeout=5,
                 )
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "whatsapp._kill_port_process", e, exc_info=True)
         pass
 
 import sys
@@ -400,7 +401,8 @@ class WhatsAppAdapter(BasePlatformAdapter):
                                 if data.get("status") == "connected":
                                     print(f"[{self.name}] Bridge ready (status: connected)")
                                     break
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "whatsapp.connect", e, exc_info=True)
                     continue
 
             if not http_ready:
@@ -431,7 +433,8 @@ class WhatsAppAdapter(BasePlatformAdapter):
                                     if data.get("status") == "connected":
                                         print(f"[{self.name}] Bridge ready (status: connected)")
                                         break
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "whatsapp.connect", e, exc_info=True)
                         continue
                 else:
                     # Still not connected — warn but proceed (bridge may
@@ -461,7 +464,8 @@ class WhatsAppAdapter(BasePlatformAdapter):
         if self._bridge_log_fh:
             try:
                 self._bridge_log_fh.close()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "whatsapp._close_bridge_log", e, exc_info=True)
                 pass
             self._bridge_log_fh = None
 

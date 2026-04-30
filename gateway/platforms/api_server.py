@@ -37,7 +37,7 @@ try:
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
-    web = None  # type: ignore[assignment]
+    web = None  # type: ignore[assignment]  # optional dependency fallback
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (
@@ -45,6 +45,7 @@ from gateway.platforms.base import (
     SendResult,
     is_network_accessible,
 )
+from gateway.event_mapper import DomainEvent, EventMapper
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8642
 MAX_PORT_ATTEMPTS = 20  # Self-healing: try up to 20 ports before giving up
 MAX_STORED_RESPONSES = 100
-MAX_REQUEST_BYTES = 1_000_000  # 1 MB default limit for POST bodies
+MAX_REQUEST_BYTES = 50_000_000  # 50 MB limit for POST bodies
 CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
 MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
 MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
@@ -96,7 +97,8 @@ def _normalize_chat_content(
                     if text:
                         try:
                             parts.append(str(text)[:MAX_NORMALIZED_TEXT_LENGTH])
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("Suppressed exception in %s: %s", "api_server._normalize_chat_content", e, exc_info=True)
                             pass
                 # Silently skip image_url / other non-text parts
             elif isinstance(item, list):
@@ -221,7 +223,8 @@ class ResponseStore:
         """Close the database connection."""
         try:
             self._conn.close()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "api_server.close", e, exc_info=True)
             pass
 
     def __len__(self) -> int:
@@ -261,7 +264,7 @@ if AIOHTTP_AVAILABLE:
             response.headers.update(cors_headers)
         return response
 else:
-    cors_middleware = None  # type: ignore[assignment]
+    cors_middleware = None  # type: ignore[assignment]  # optional dependency fallback
 
 
 def _openai_error(message: str, err_type: str = "invalid_request_error", param: str = None, code: str = None) -> Dict[str, Any]:
@@ -290,7 +293,7 @@ if AIOHTTP_AVAILABLE:
                     return web.json_response(_openai_error("Invalid Content-Length header.", code="invalid_content_length"), status=400)
         return await handler(request)
 else:
-    body_limit_middleware = None  # type: ignore[assignment]
+    body_limit_middleware = None  # type: ignore[assignment]  # optional dependency fallback
 
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -307,7 +310,7 @@ if AIOHTTP_AVAILABLE:
             response.headers.setdefault(k, v)
         return response
 else:
-    security_headers_middleware = None  # type: ignore[assignment]
+    security_headers_middleware = None  # type: ignore[assignment]  # optional dependency fallback
 
 
 class _IdempotencyCache:
@@ -429,7 +432,8 @@ class APIServerAdapter(BasePlatformAdapter):
             profile = get_active_profile_name()
             if profile and profile not in ("default", "custom"):
                 return profile
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "api_server._resolve_model_name", e, exc_info=True)
             pass
         return "hermes-agent"
 
@@ -754,36 +758,22 @@ class APIServerAdapter(BasePlatformAdapter):
                     _stream_q.put(delta)
 
             def _on_tool_progress(event_type, name, preview, args, **kwargs):
-                """Send tool progress as a separate SSE event.
-
-                Previously, progress markers like ``⏰ list`` were injected
-                directly into ``delta.content``.  OpenAI-compatible frontends
-                (Open WebUI, LobeChat, …) store ``delta.content`` verbatim as
-                the assistant message and send it back on subsequent requests.
-                After enough turns the model learns to *emit* the markers as
-                plain text instead of issuing real tool calls — silently
-                hallucinating tool results.  See #6972.
-
-                The fix: push a tagged tuple ``("__tool_progress__", payload)``
-                onto the stream queue.  The SSE writer emits it as a custom
-                ``event: hermes.tool.progress`` line that compliant frontends
-                can render for UX but will *not* persist into conversation
-                history.  Clients that don't understand the custom event type
-                silently ignore it per the SSE specification.
+                """Send tool progress as a separate SSE event via EventMapper.
+                Uses the anti-corruption layer to construct domain events and
+                map them to transport-specific payloads.  See #6972.
                 """
                 if event_type != "tool.started":
                     return
                 if name.startswith("_"):
                     return
-                from agent.display import get_tool_emoji
-                emoji = get_tool_emoji(name)
-                label = preview or name
-                _stream_q.put(("__tool_progress__", {
-                    "tool": name,
-                    "emoji": emoji,
-                    "label": label,
-                }))
-
+                domain_evt = DomainEvent.tool_started(tool_name=name, preview=preview, args=args)
+                sse_payload = EventMapper.to_tool_progress_sse(domain_evt)
+                if sse_payload is not None:
+                    # Enrich with emoji for chat completions display
+                    from agent.display import get_tool_emoji
+                    sse_payload["emoji"] = get_tool_emoji(name)
+                    sse_payload["label"] = preview or name
+                    _stream_q.put(("__tool_progress__", sse_payload))
             # Start agent in background.  agent_ref is a mutable container
             # so the SSE writer can interrupt the agent on client disconnect.
             agent_ref = [None]
@@ -902,13 +892,9 @@ class APIServerAdapter(BasePlatformAdapter):
 
             # Helper — route a queue item to the correct SSE event.
             async def _emit(item):
-                """Write a single queue item to the SSE stream.
-
-                Plain strings are sent as normal ``delta.content`` chunks.
-                Tagged tuples ``("__tool_progress__", payload)`` are sent
-                as a custom ``event: hermes.tool.progress`` SSE event so
-                frontends can display them without storing the markers in
-                conversation history.  See #6972.
+                """Write a single queue item to the SSE stream via EventMapper.
+                Plain strings become ``DomainEvent.stream_chunk`` -> chat chunk.
+                Tagged tuples become ``hermes.tool.progress`` custom SSE events.
                 """
                 if isinstance(item, tuple) and len(item) == 2 and item[0] == "__tool_progress__":
                     event_data = json.dumps(item[1])
@@ -916,12 +902,10 @@ class APIServerAdapter(BasePlatformAdapter):
                         f"event: hermes.tool.progress\ndata: {event_data}\n\n".encode()
                     )
                 else:
-                    content_chunk = {
-                        "id": completion_id, "object": "chat.completion.chunk",
-                        "created": created, "model": model,
-                        "choices": [{"index": 0, "delta": {"content": item}, "finish_reason": None}],
-                    }
-                    await response.write(f"data: {json.dumps(content_chunk)}\n\n".encode())
+                    domain_evt = DomainEvent.stream_chunk(content=item)
+                    chunk = EventMapper.to_chat_chunk(domain_evt, completion_id, model, created)
+                    if chunk is not None:
+                        await response.write(f"data: {json.dumps(chunk)}\n\n".encode())
                 return time.monotonic()
 
             # Stream content chunks as they arrive from the agent
@@ -956,21 +940,21 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 result, agent_usage = await agent_task
                 usage = agent_usage or usage
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._emit", e, exc_info=True)
                 pass
 
-            # Finish chunk
-            finish_chunk = {
-                "id": completion_id, "object": "chat.completion.chunk",
-                "created": created, "model": model,
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                "usage": {
+            # Finish chunk — via EventMapper anti-corruption layer
+            domain_evt = DomainEvent.stream_done()
+            finish_chunk = EventMapper.to_chat_chunk(domain_evt, completion_id, model, created)
+            if finish_chunk is not None:
+                # Merge usage info (transport concern, not in domain event)
+                finish_chunk["usage"] = {
                     "prompt_tokens": usage.get("input_tokens", 0),
                     "completion_tokens": usage.get("output_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
-                },
-            }
-            await response.write(f"data: {json.dumps(finish_chunk)}\n\n".encode())
+                }
+                await response.write(f"data: {json.dumps(finish_chunk)}\n\n".encode())
             await response.write(b"data: [DONE]\n\n")
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
             # Client disconnected mid-stream.  Interrupt the agent so it
@@ -980,7 +964,8 @@ class APIServerAdapter(BasePlatformAdapter):
             if agent is not None:
                 try:
                     agent.interrupt("SSE client disconnected")
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "api_server._emit", e, exc_info=True)
                     pass
             if not agent_task.done():
                 agent_task.cancel()
@@ -1588,8 +1573,8 @@ class APIServerAdapter(BasePlatformAdapter):
     # /v1/runs — structured event streaming
     # ------------------------------------------------------------------
 
-    _MAX_CONCURRENT_RUNS = 10  # Prevent unbounded resource allocation
-    _RUN_STREAM_TTL = 300  # seconds before orphaned runs are swept
+    _MAX_CONCURRENT_RUNS = 50  # Prevent unbounded resource allocation
+    _RUN_STREAM_TTL = 120  # seconds before orphaned runs are swept
 
     def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop"):
         """Return a tool_progress_callback that pushes structured events to the run's SSE queue."""
@@ -1599,60 +1584,35 @@ class APIServerAdapter(BasePlatformAdapter):
                 return
             try:
                 loop.call_soon_threadsafe(q.put_nowait, event)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._push", e, exc_info=True)
                 pass
 
         def _callback(event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs):
             logger.info('[EVENT_CB] event_type=%s tool=%s run=%s kwargs_keys=%s', event_type, tool_name, run_id, list(kwargs.keys()))
             if event_type == "tool.completed" and tool_name == "image_generate":
                 logger.info('[IMAGE_DEBUG] is_error=%s result_preview=%s', kwargs.get('is_error'), str(kwargs.get('result', ''))[:500])
-            ts = time.time()
+
+            # --- EventMapper anti-corruption layer ---
+            # Domain events are constructed here; transport formatting is delegated to EventMapper.
+            domain_event = None
             if event_type == "tool.started":
-                evt = {
-                    "event": "tool.started",
-                    "run_id": run_id,
-                    "timestamp": ts,
-                    "tool": tool_name,
-                    "preview": preview,
-                }
-                # Include args when available (needed for todo/plan tracking)
-                if args is not None:
-                    import json as _json
-                    try:
-                        evt["args"] = _json.loads(_json.dumps(args))
-                    except (TypeError, ValueError):
-                        evt["args"] = str(args)
-                _push(evt)
+                domain_event = DomainEvent.tool_started(tool_name=tool_name, preview=preview, args=args)
             elif event_type == "tool.completed":
-                evt = {
-                    "event": "tool.completed",
-                    "run_id": run_id,
-                    "timestamp": ts,
-                    "tool": tool_name,
-                    "duration": round(kwargs.get("duration", 0), 3),
-                    "error": kwargs.get("is_error", False),
-                }
-                # Include tool result and args when available
-                if kwargs.get("result") is not None:
-                    result_str = str(kwargs["result"])
-                    # Cap result at 50KB to avoid oversized SSE frames
-                    evt["result"] = result_str[:50000] if len(result_str) > 50000 else result_str
-                if kwargs.get("args") is not None:
-                    import json as _json
-                    try:
-                        evt["args"] = _json.loads(_json.dumps(kwargs["args"]))
-                    except (TypeError, ValueError):
-                        evt["args"] = str(kwargs["args"])
-                _push(evt)
+                domain_event = DomainEvent.tool_completed(
+                    tool_name=tool_name,
+                    duration=kwargs.get("duration", 0),
+                    is_error=kwargs.get("is_error", False),
+                    result=str(kwargs["result"]) if kwargs.get("result") is not None else None,
+                    args=kwargs.get("args"),
+                )
             elif event_type == "reasoning.available":
-                _push({
-                    "event": "reasoning.available",
-                    "run_id": run_id,
-                    "timestamp": ts,
-                    "text": preview or "",
-                })
+                domain_event = DomainEvent.reasoning_available(text=preview or "")
             # _thinking and subagent_progress are intentionally not forwarded
 
+            if domain_event is not None:
+                sse_payload = EventMapper.to_run_event(domain_event, run_id=run_id)
+                _push(sse_payload)
         return _callback
 
     async def _handle_runs(self, request: "web.Request") -> "web.Response":
@@ -1700,7 +1660,8 @@ class APIServerAdapter(BasePlatformAdapter):
                     "timestamp": time.time(),
                     "delta": delta,
                 })
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._text_cb", e, exc_info=True)
                 pass
 
         instructions = body.get("instructions")
@@ -1800,13 +1761,15 @@ class APIServerAdapter(BasePlatformAdapter):
                         "timestamp": time.time(),
                         "error": str(exc),
                     })
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "api_server._run_sync", e, exc_info=True)
                     pass
             finally:
                 # Sentinel: signal SSE stream to close
                 try:
                     q.put_nowait(None)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "api_server._run_sync", e, exc_info=True)
                     pass
 
         task = asyncio.create_task(_run_and_close())
@@ -1844,11 +1807,13 @@ class APIServerAdapter(BasePlatformAdapter):
                     "run_id": run_id,
                     "timestamp": time.time(),
                 })
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._handle_cancel_run", e, exc_info=True)
                 pass
             try:
                 q.put_nowait(None)  # sentinel to close SSE stream
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._handle_cancel_run", e, exc_info=True)
                 pass
         # Cleanup
         self._run_tasks.pop(run_id, None)
@@ -1963,7 +1928,8 @@ class APIServerAdapter(BasePlatformAdapter):
                         break
                     elif msg.type == _aiohttp.WSMsgType.ERROR:
                         break
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._forward_server_to_client", e, exc_info=True)
                 pass
             finally:
                 if not ws_server.closed:
@@ -1980,7 +1946,8 @@ class APIServerAdapter(BasePlatformAdapter):
                         break
                     elif msg.type == _aiohttp.WSMsgType.ERROR:
                         break
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._forward_client_to_server", e, exc_info=True)
                 pass
             finally:
                 if not ws_client.closed:
@@ -2042,7 +2009,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         try:
             mws = [mw for mw in (cors_middleware, body_limit_middleware, security_headers_middleware) if mw is not None]
-            self._app = web.Application(middlewares=mws)
+            self._app = web.Application(middlewares=mws, client_max_size=50 * 1024 * 1024)
             self._app["api_server_adapter"] = self
             self._app.router.add_get("/health", self._handle_health)
             self._app.router.add_get("/v1/health", self._handle_health)

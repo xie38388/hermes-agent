@@ -255,9 +255,11 @@ def scan_skill_commands() -> Dict[str, Dict[str, Any]]:
                         "skill_md_path": str(skill_md),
                         "skill_dir": str(skill_md.parent),
                     }
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "skill_commands.scan_skill_commands", e, exc_info=True)
                     continue
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "skill_commands.scan_skill_commands", e, exc_info=True)
         pass
     return _skill_commands
 

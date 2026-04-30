@@ -996,7 +996,8 @@ def stream_tts_to_speaker(
             try:
                 output_stream.stop()
                 output_stream.close()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "tts_tool._play_via_tempfile", e, exc_info=True)
                 pass
         tts_done_event.set()
 

@@ -52,7 +52,7 @@ try:
 
     _MCP_SERVER_AVAILABLE = True
 except ImportError:
-    FastMCP = None  # type: ignore[assignment,misc]
+    FastMCP = None  # type: ignore[assignment,misc]  # optional dependency fallback
 
 
 # ---------------------------------------------------------------------------
@@ -368,7 +368,8 @@ class EventBridge:
 
             try:
                 messages = db.get_messages(session_id)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "mcp_serve._poll_once", e, exc_info=True)
                 continue
 
             if not messages:

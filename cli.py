@@ -535,7 +535,8 @@ except Exception:
 try:
     from hermes_cli.config import print_config_warnings
     print_config_warnings()
-except Exception:
+except Exception as e:
+    logger.warning("Suppressed exception in %s: %s", "cli.load_cli_config", e, exc_info=True)
     pass
 
 # Initialize the skin engine from config
@@ -550,7 +551,8 @@ try:
     from agent.display import set_tool_preview_max_len
     _tpl = CLI_CONFIG.get("display", {}).get("tool_preview_length", 0)
     set_tool_preview_max_len(int(_tpl) if _tpl else 0)
-except Exception:
+except Exception as e:
+    logger.warning("Suppressed exception in %s: %s", "cli.load_cli_config", e, exc_info=True)
     pass
 
 # Neuter AsyncHttpxClientWrapper.__del__ before any AsyncOpenAI clients are
@@ -561,7 +563,8 @@ except Exception:
 try:
     from agent.auxiliary_client import neuter_async_httpx_del
     neuter_async_httpx_del()
-except Exception:
+except Exception as e:
+    logger.warning("Suppressed exception in %s: %s", "cli.load_cli_config", e, exc_info=True)
     pass
 
 from rich import box as rich_box
@@ -604,16 +607,19 @@ def _run_cleanup():
     _cleanup_done = True
     try:
         _cleanup_all_terminals()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "cli._run_cleanup", e, exc_info=True)
         pass
     try:
         _cleanup_all_browsers()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "cli._run_cleanup", e, exc_info=True)
         pass
     try:
         from tools.mcp_tool import shutdown_mcp_servers
         shutdown_mcp_servers()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "cli._run_cleanup", e, exc_info=True)
         pass
     # Close cached auxiliary LLM clients (sync + async) so that
     # AsyncHttpxClientWrapper.__del__ doesn't fire on a closed event loop
@@ -621,21 +627,24 @@ def _run_cleanup():
     try:
         from agent.auxiliary_client import shutdown_cached_clients
         shutdown_cached_clients()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "cli._run_cleanup", e, exc_info=True)
         pass
     # Shut down memory provider (on_session_end + shutdown_all) at actual
     # session boundary — NOT per-turn inside run_conversation().
     try:
         from hermes_cli.plugins import invoke_hook as _invoke_hook
         _invoke_hook("on_session_finalize", session_id=_active_agent_ref.session_id if _active_agent_ref else None, platform="cli")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "cli._run_cleanup", e, exc_info=True)
         pass
     try:
         if _active_agent_ref and hasattr(_active_agent_ref, 'shutdown_memory_provider'):
             _active_agent_ref.shutdown_memory_provider(
                 getattr(_active_agent_ref, 'conversation_history', None) or []
             )
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "cli._run_cleanup", e, exc_info=True)
         pass
 
 
@@ -657,7 +666,8 @@ def _git_repo_root() -> Optional[str]:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "cli._git_repo_root", e, exc_info=True)
         pass
     return None
 
@@ -866,7 +876,8 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
             mtime = entry.stat().st_mtime
             if mtime > soft_cutoff:
                 continue  # Too recent — skip
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._prune_stale_worktrees", e, exc_info=True)
             continue
 
         force = mtime <= hard_cutoff  # Over 72h — force remove
@@ -949,7 +960,8 @@ def _prune_orphaned_branches(repo_root: str) -> None:
         current = head_result.stdout.strip()
         if current:
             active_branches.add(current)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "cli._prune_orphaned_branches", e, exc_info=True)
         pass
     active_branches.add("main")
 
@@ -2148,7 +2160,8 @@ class HermesCLI:
                     self.model = normalized_model
                     current_model = normalized_model
                     changed = True
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._normalize_model_for_provider", e, exc_info=True)
             pass
 
         if resolved_provider == "copilot":
@@ -2169,7 +2182,8 @@ class HermesCLI:
                 if resolved_mode != self.api_mode:
                     self.api_mode = resolved_mode
                     changed = True
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._normalize_model_for_provider", e, exc_info=True)
                 pass
             return changed
 
@@ -2191,7 +2205,8 @@ class HermesCLI:
                 if resolved_mode != self.api_mode:
                     self.api_mode = resolved_mode
                     changed = True
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._normalize_model_for_provider", e, exc_info=True)
                 pass
             return changed
 
@@ -2221,7 +2236,8 @@ class HermesCLI:
                 )
                 if available:
                     fallback_model = available[0]
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._normalize_model_for_provider", e, exc_info=True)
                 pass
 
             if current_model != fallback_model:
@@ -2748,7 +2764,8 @@ class HermesCLI:
                         "No model configured — defaulting to %s for provider %s",
                         _default, resolved_provider,
                     )
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._ensure_runtime_credentials", e, exc_info=True)
                 pass
 
         # Normalize model for the resolved provider (e.g. swap non-Codex
@@ -2852,7 +2869,8 @@ class HermesCLI:
                     (self.session_id,),
                 )
                 self._session_db._conn.commit()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._init_agent", e, exc_info=True)
                 pass
         
         try:
@@ -3072,7 +3090,8 @@ class HermesCLI:
                 (self.session_id,),
             )
             self._session_db._conn.commit()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._preload_resumed_session", e, exc_info=True)
             pass
 
         return True
@@ -3578,7 +3597,8 @@ class HermesCLI:
             try:
                 updated_at = datetime.fromtimestamp(float(value))
                 break
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._show_session_status", e, exc_info=True)
                 pass
 
         agent = getattr(self, "agent", None)
@@ -3976,7 +3996,8 @@ class HermesCLI:
                 session_id=self.agent.session_id if self.agent else None,
                 platform=getattr(self, "platform", None) or "cli",
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._notify_session_boundary", e, exc_info=True)
             pass
 
     def new_session(self, silent=False):
@@ -3995,7 +4016,8 @@ class HermesCLI:
         if self._session_db and old_session_id:
             try:
                 self._session_db.end_session(old_session_id, "new_session")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli.new_session", e, exc_info=True)
                 pass
 
         self.session_start = datetime.now()
@@ -4016,7 +4038,8 @@ class HermesCLI:
                 try:
                     from tools.todo_tool import TodoStore
                     self.agent._todo_store = TodoStore()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli.new_session", e, exc_info=True)
                     pass
             if hasattr(self.agent, "_invalidate_system_prompt"):
                 self.agent._invalidate_system_prompt()
@@ -4032,7 +4055,8 @@ class HermesCLI:
                             "reasoning_config": self.reasoning_config,
                         },
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli.new_session", e, exc_info=True)
                     pass
             self._notify_session_boundary("on_session_reset")
 
@@ -4073,7 +4097,8 @@ class HermesCLI:
         # End current session
         try:
             self._session_db.end_session(self.session_id, "resumed_other")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._handle_resume_command", e, exc_info=True)
             pass
 
         # Switch to the target session
@@ -4089,7 +4114,8 @@ class HermesCLI:
         # Re-open the target session so it's not marked as ended
         try:
             self._session_db.reopen_session(target_id)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._handle_resume_command", e, exc_info=True)
             pass
 
         # Sync the agent if already initialised
@@ -4102,7 +4128,8 @@ class HermesCLI:
                 try:
                     from tools.todo_tool import TodoStore
                     self.agent._todo_store = TodoStore()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._handle_resume_command", e, exc_info=True)
                     pass
             if hasattr(self.agent, "_invalidate_system_prompt"):
                 self.agent._invalidate_system_prompt()
@@ -4159,7 +4186,8 @@ class HermesCLI:
         # End the old session
         try:
             self._session_db.end_session(self.session_id, "branched")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._handle_branch_command", e, exc_info=True)
             pass
 
         # Create the new session with parent link
@@ -4196,7 +4224,8 @@ class HermesCLI:
         # Set title on the branch
         try:
             self._session_db.set_session_title(new_session_id, branch_title)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._handle_branch_command", e, exc_info=True)
             pass
 
         # Switch to the new session
@@ -4216,7 +4245,8 @@ class HermesCLI:
                 try:
                     from tools.todo_tool import TodoStore
                     self.agent._todo_store = TodoStore()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._handle_branch_command", e, exc_info=True)
                     pass
             if hasattr(self.agent, "_invalidate_system_prompt"):
                 self.agent._invalidate_system_prompt()
@@ -4490,7 +4520,8 @@ class HermesCLI:
                     provider=result.target_provider,
                 )
                 _cprint(f"    Context: {ctx:,} tokens")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._apply_model_switch_result", e, exc_info=True)
                 pass
 
         cache_enabled = (
@@ -4527,7 +4558,8 @@ class HermesCLI:
                 live = provider_model_ids(provider_data["slug"])
                 if live:
                     model_list = live
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._handle_model_picker_selection", e, exc_info=True)
                 pass
             if not model_list:
                 model_list = provider_data.get("models", [])
@@ -4604,7 +4636,8 @@ class HermesCLI:
                 cfg = load_config()
                 user_provs = cfg.get("providers")
                 custom_provs = cfg.get("custom_providers")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._handle_model_switch", e, exc_info=True)
                 pass
 
             try:
@@ -4714,7 +4747,8 @@ class HermesCLI:
                     provider=result.target_provider,
                 )
                 _cprint(f"    Context: {ctx:,} tokens")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._handle_model_switch", e, exc_info=True)
                 pass
 
         # Cache notice
@@ -5270,7 +5304,8 @@ class HermesCLI:
                     except Exception:
                         _tip_color = "#B8860B"
                     cc.print(f"[dim {_tip_color}]✦ Tip: {_tip}[/]")
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli.process_command", e, exc_info=True)
                     pass
             else:
                 self.show_banner()
@@ -5285,7 +5320,8 @@ class HermesCLI:
                     except Exception:
                         _tip_color = "#B8860B"
                     self.console.print(f"[dim {_tip_color}]✦ Tip: {_tip}[/]")
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli.process_command", e, exc_info=True)
                     pass
         elif canonical == "history":
             self.show_history()
@@ -5892,7 +5928,8 @@ class HermesCLI:
             try:
                 from tools.browser_tool import cleanup_all_browsers
                 cleanup_all_browsers()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._handle_browser_command", e, exc_info=True)
                 pass
 
             print()
@@ -5993,7 +6030,8 @@ class HermesCLI:
                 try:
                     from tools.browser_tool import cleanup_all_browsers
                     cleanup_all_browsers()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._handle_browser_command", e, exc_info=True)
                     pass
                 print()
                 print("🌐 Browser disconnected from live Chrome")
@@ -6640,7 +6678,8 @@ class HermesCLI:
                     if is_error:
                         line = f"{line} [error]"
                     _cprint(f"  {line}")
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._on_tool_progress", e, exc_info=True)
                     pass
             self._invalidate()
             return
@@ -6674,7 +6713,8 @@ class HermesCLI:
                 kwargs={"frequency": 1200, "duration": 0.06, "count": 1},
                 daemon=True,
             ).start()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._on_tool_progress", e, exc_info=True)
             pass
 
     def _on_tool_start(self, tool_call_id: str, function_name: str, function_args: dict):
@@ -6753,7 +6793,8 @@ class HermesCLI:
         try:
             from hermes_cli.config import load_config
             voice_cfg = load_config().get("voice", {})
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._voice_start_recording", e, exc_info=True)
             pass
 
         if self._voice_recorder is None:
@@ -6777,7 +6818,8 @@ class HermesCLI:
         try:
             from tools.voice_mode import play_beep
             play_beep(frequency=880, count=1)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._on_silence", e, exc_info=True)
             pass
 
         try:
@@ -6829,7 +6871,8 @@ class HermesCLI:
             try:
                 from tools.voice_mode import play_beep
                 play_beep(frequency=660, count=2)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._voice_stop_and_transcribe", e, exc_info=True)
                 pass
 
             if wav_path is None:
@@ -6847,7 +6890,8 @@ class HermesCLI:
                 from hermes_cli.config import load_config
                 stt_config = load_config().get("stt", {})
                 stt_model = stt_config.get("model")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._voice_stop_and_transcribe", e, exc_info=True)
                 pass
 
             from tools.voice_mode import transcribe_recording
@@ -6877,7 +6921,8 @@ class HermesCLI:
             try:
                 if wav_path and os.path.isfile(wav_path):
                     os.unlink(wav_path)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._voice_stop_and_transcribe", e, exc_info=True)
                 pass
 
             # Track consecutive no-speech cycles to avoid infinite restart loops.
@@ -7022,7 +7067,8 @@ class HermesCLI:
             if voice_config.get("auto_tts", False):
                 with self._voice_lock:
                     self._voice_tts = True
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._enable_voice_mode", e, exc_info=True)
             pass
 
         # Voice mode instruction is injected as a user message prefix (not a
@@ -7059,7 +7105,8 @@ class HermesCLI:
             def _bg_shutdown(rec=recorder):
                 try:
                     rec.shutdown()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._bg_shutdown", e, exc_info=True)
                     pass
             threading.Thread(target=_bg_shutdown, daemon=True).start()
             self._voice_recorder = None
@@ -7068,7 +7115,8 @@ class HermesCLI:
         try:
             from tools.voice_mode import stop_playback
             stop_playback()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._bg_shutdown", e, exc_info=True)
             pass
         self._voice_tts_done.set()
 
@@ -7414,7 +7462,8 @@ class HermesCLI:
             buf = self._app.current_buffer
             buf.text = snapshot.get("text", "")
             buf.cursor_position = min(snapshot.get("cursor_position", 0), len(buf.text))
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._restore_modal_input_snapshot", e, exc_info=True)
             pass
 
     def _submit_secret_response(self, value: str) -> None:
@@ -7432,7 +7481,8 @@ class HermesCLI:
         if getattr(self, "_app", None):
             try:
                 self._app.current_buffer.reset()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._clear_secret_input_buffer", e, exc_info=True)
                 pass
 
     def chat(self, message, images: list = None) -> Optional[str]:
@@ -7559,7 +7609,8 @@ class HermesCLI:
                         use_streaming_tts = True
                 except (ImportError, OSError):
                     pass
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli.chat", e, exc_info=True)
                     pass
 
             if use_streaming_tts:
@@ -7665,7 +7716,8 @@ class HermesCLI:
                                              f"parent._interrupt={self.agent._interrupt_requested}\n")
                                     for _ci, _ch in enumerate(self.agent._active_children):
                                         _f.write(f"  child[{_ci}]._interrupt={_ch._interrupt_requested}\n")
-                            except Exception:
+                            except Exception as e:
+                                logger.warning("Suppressed exception in %s: %s", "cli.run_agent", e, exc_info=True)
                                 pass
                             break
                     except queue.Empty:
@@ -7688,7 +7740,8 @@ class HermesCLI:
             try:
                 from agent.auxiliary_client import cleanup_stale_async_clients
                 cleanup_stale_async_clients()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli.run_agent", e, exc_info=True)
                 pass
 
             # Flush any remaining streamed text and close the box
@@ -7725,7 +7778,8 @@ class HermesCLI:
                         response,
                         self.conversation_history,
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli.run_agent", e, exc_info=True)
                     pass
 
             # Handle failed or partial results (e.g., non-retryable errors, rate limits,
@@ -7862,7 +7916,8 @@ class HermesCLI:
             if text_queue is not None:
                 try:
                     text_queue.put_nowait(None)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli.run_agent", e, exc_info=True)
                     pass
             if stop_event is not None:
                 stop_event.set()
@@ -7891,7 +7946,8 @@ class HermesCLI:
             if self._session_db:
                 try:
                     session_title = self._session_db.get_session_title(self.session_id)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._print_exit_summary", e, exc_info=True)
                     pass
 
             print("Resume this session with:")
@@ -7936,7 +7992,8 @@ class HermesCLI:
             profile = get_active_profile_name()
             if profile not in ("default", "custom"):
                 symbol = f"{profile} {symbol}"
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._get_tui_prompt_symbols", e, exc_info=True)
             pass
         stripped = symbol.rstrip()
         if not stripped:
@@ -8011,7 +8068,8 @@ class HermesCLI:
         try:
             from hermes_cli.skin_engine import get_prompt_toolkit_style_overrides
             style_dict.update(get_prompt_toolkit_style_overrides())
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._build_tui_style_dict", e, exc_info=True)
             pass
         return style_dict
 
@@ -8104,7 +8162,8 @@ class HermesCLI:
             _term_lines = shutil.get_terminal_size().lines
             if _term_lines > 2:
                 print("\n" * (_term_lines - 1), end="", flush=True)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli.run", e, exc_info=True)
             pass
 
         self.show_banner()
@@ -8330,7 +8389,8 @@ class HermesCLI:
                                 import time as _t
                                 _f.write(f"{_t.strftime('%H:%M:%S')} ENTER: queued interrupt msg={str(payload)[:60]!r}, "
                                          f"agent_running={self._agent_running}\n")
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("Suppressed exception in %s: %s", "cli.handle_enter", e, exc_info=True)
                             pass
                 else:
                     self._pending_input.put(payload)
@@ -8615,7 +8675,8 @@ class HermesCLI:
                         from tools.voice_mode import stop_playback
                         stop_playback()
                         cli_ref._voice_tts_done.set()
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "cli.handle_voice_record", e, exc_info=True)
                         pass
 
                 with cli_ref._voice_lock:
@@ -9421,7 +9482,8 @@ class HermesCLI:
                                         _synth = _format_process_notification(evt)
                                         if _synth:
                                             self._pending_input.put(_synth)
-                            except Exception:
+                            except Exception as e:
+                                logger.warning("Suppressed exception in %s: %s", "cli.process_loop", e, exc_info=True)
                                 pass
                         continue
                     
@@ -9620,7 +9682,8 @@ class HermesCLI:
                     import asyncio as _aio
                     _loop = _aio.get_event_loop()
                     _loop.set_exception_handler(_suppress_closed_loop_errors)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._suppress_closed_loop_errors", e, exc_info=True)
                     pass
                 app.run()
         except (EOFError, KeyboardInterrupt, BrokenPipeError):
@@ -9645,7 +9708,8 @@ class HermesCLI:
             if self.agent and getattr(self, '_agent_running', False):
                 try:
                     self.agent.interrupt()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._suppress_closed_loop_errors", e, exc_info=True)
                     pass
             # Flush memories before exit (only for substantial conversations)
             if self.agent and self.conversation_history:
@@ -9657,14 +9721,16 @@ class HermesCLI:
             if hasattr(self, '_voice_recorder') and self._voice_recorder:
                 try:
                     self._voice_recorder.shutdown()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._suppress_closed_loop_errors", e, exc_info=True)
                     pass
                 self._voice_recorder = None
             # Clean up old temp voice recordings
             try:
                 from tools.voice_mode import cleanup_temp_recordings
                 cleanup_temp_recordings()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "cli._suppress_closed_loop_errors", e, exc_info=True)
                 pass
             # Unregister callbacks to avoid dangling references
             set_sudo_password_callback(None)
@@ -9691,7 +9757,8 @@ class HermesCLI:
                         model=getattr(self.agent, 'model', None),
                         platform=getattr(self.agent, 'platform', None) or "cli",
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "cli._suppress_closed_loop_errors", e, exc_info=True)
                     pass
             _run_cleanup()
             self._print_exit_summary()

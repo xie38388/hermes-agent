@@ -22,6 +22,8 @@ from typing import Any
 
 from tools.environments.base import BaseEnvironment
 from tools.interrupt import is_interrupted
+import logging
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -109,7 +111,8 @@ class BaseModalExecutionEnvironment(BaseEnvironment):
             if is_interrupted():
                 try:
                     self._cancel_modal_exec(start.handle)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "modal_utils.execute", e, exc_info=True)
                     pass
                 return self._result(self._interrupt_output, 130)
 
@@ -124,7 +127,8 @@ class BaseModalExecutionEnvironment(BaseEnvironment):
             if deadline is not None and time.monotonic() >= deadline:
                 try:
                     self._cancel_modal_exec(start.handle)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "modal_utils.execute", e, exc_info=True)
                     pass
                 return self._timeout_result_for_modal(prepared.timeout)
 

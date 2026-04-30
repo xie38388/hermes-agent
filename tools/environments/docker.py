@@ -448,7 +448,8 @@ class DockerEnvironment(BaseEnvironment):
         try:
             from tools.env_passthrough import get_all_passthrough
             passthrough_keys = set(get_all_passthrough())
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "docker._build_init_env_args", e, exc_info=True)
             pass
         # Explicit docker_forward_env entries are an intentional opt-in and must
         # win over the generic Hermes secret blocklist. Only implicit passthrough
@@ -550,7 +551,8 @@ class DockerEnvironment(BaseEnvironment):
                         f"sleep 3 && {self._docker_exe} rm -f {self._container_id} >/dev/null 2>&1 &",
                         shell=True,
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "docker.cleanup", e, exc_info=True)
                     pass
             self._container_id = None
 

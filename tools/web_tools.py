@@ -372,13 +372,15 @@ def _to_plain_object(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         try:
             return value.model_dump()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "web_tools._to_plain_object", e, exc_info=True)
             pass
 
     if hasattr(value, "__dict__"):
         try:
             return {k: v for k, v in value.__dict__.items() if not k.startswith("_")}
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "web_tools._to_plain_object", e, exc_info=True)
             pass
 
     return value

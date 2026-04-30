@@ -25,7 +25,7 @@ try:
     from zoneinfo import ZoneInfo
 except ImportError:
     # Python 3.8 fallback (shouldn't be needed — Hermes requires 3.9+)
-    from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]
+    from backports.zoneinfo import ZoneInfo  # type: ignore[no-redef]  # conditional redefinition for optional dependency
 
 # Cached state — resolved once, reused on every call.
 # Call reset_cache() to force re-resolution (e.g. after config changes).
@@ -55,7 +55,8 @@ def _resolve_timezone_name() -> str:
             tz_cfg = cfg.get("timezone", "")
             if isinstance(tz_cfg, str) and tz_cfg.strip():
                 return tz_cfg.strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "hermes_time._resolve_timezone_name", e, exc_info=True)
         pass
 
     return ""

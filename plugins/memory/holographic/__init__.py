@@ -141,7 +141,8 @@ class HolographicMemoryProvider(MemoryProvider):
             existing["plugins"]["hermes-memory-store"] = values
             with open(config_path, "w") as f:
                 yaml.dump(existing, f, default_flow_style=False)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "__init__.save_config", e, exc_info=True)
             pass
 
     def get_config_schema(self):
@@ -379,7 +380,8 @@ class HolographicMemoryProvider(MemoryProvider):
                     try:
                         self._store.add_fact(content[:400], category="user_pref")
                         extracted += 1
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "__init__._auto_extract_facts", e, exc_info=True)
                         pass
                     break
 
@@ -388,7 +390,8 @@ class HolographicMemoryProvider(MemoryProvider):
                     try:
                         self._store.add_fact(content[:400], category="project")
                         extracted += 1
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "__init__._auto_extract_facts", e, exc_info=True)
                         pass
                     break
 

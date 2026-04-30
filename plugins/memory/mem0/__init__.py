@@ -60,7 +60,8 @@ def _load_config() -> dict:
             file_cfg = json.loads(config_path.read_text(encoding="utf-8"))
             config.update({k: v for k, v in file_cfg.items()
                            if v is not None and v != ""})
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "__init__._load_config", e, exc_info=True)
             pass
 
     return config
@@ -152,7 +153,8 @@ class Mem0MemoryProvider(MemoryProvider):
         if config_path.exists():
             try:
                 existing = json.loads(config_path.read_text())
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "__init__.save_config", e, exc_info=True)
                 pass
         existing.update(values)
         config_path.write_text(json.dumps(existing, indent=2))

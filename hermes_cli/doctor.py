@@ -11,6 +11,8 @@ import shutil
 
 from hermes_cli.config import get_project_root, get_hermes_home, get_env_path
 from hermes_constants import display_hermes_home
+import logging
+logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = get_project_root()
 HERMES_HOME = get_hermes_home()
@@ -315,7 +317,8 @@ def run_doctor(args):
                     issues.append("Run 'hermes doctor --fix' or 'hermes setup' to migrate config")
             else:
                 check_ok(f"Config version up to date (v{current_ver})")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "doctor.run_doctor", e, exc_info=True)
             pass
 
         # Detect stale root-level model keys (known bug source — PR #4329)
@@ -342,7 +345,8 @@ def run_doctor(args):
                     fixed_count += 1
                 else:
                     issues.append("Stale root-level provider/base_url in config.yaml — run 'hermes doctor --fix'")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "doctor.run_doctor", e, exc_info=True)
             pass
 
         # Validate config structure (catches malformed custom_providers, etc.)
@@ -361,7 +365,8 @@ def run_doctor(args):
                     for hint_line in ci.hint.splitlines():
                         check_info(hint_line)
                     issues.append(ci.message)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "doctor.run_doctor", e, exc_info=True)
             pass
 
     # =========================================================================
@@ -508,7 +513,8 @@ def run_doctor(args):
                     issues.append("Large WAL file — run 'hermes doctor --fix' to checkpoint")
             elif wal_size > 10 * 1024 * 1024:  # 10 MB
                 check_info(f"WAL file is {wal_size // (1024*1024)} MB (normal for active sessions)")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "doctor.run_doctor", e, exc_info=True)
             pass
 
     _check_gateway_service_linger(issues)
@@ -654,7 +660,8 @@ def run_doctor(args):
                     issues.append(f"{label} has {total} npm vulnerability(ies)")
                 else:
                     check_ok(f"{label} deps", f"({moderate} moderate vulnerability(ies))")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "doctor.run_doctor", e, exc_info=True)
                 pass
 
     # =========================================================================
@@ -876,7 +883,8 @@ def run_doctor(args):
             with open(_mem_cfg_path) as _f:
                 _raw_cfg = _yaml.safe_load(_f) or {}
             _active_memory_provider = (_raw_cfg.get("memory") or {}).get("provider", "")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "doctor.run_doctor", e, exc_info=True)
         pass
 
     if not _active_memory_provider:
@@ -981,11 +989,13 @@ def run_doctor(args):
                             _m = _re.search(r"hermes -p (\S+)", content)
                             if _m and not profile_exists(_m.group(1)):
                                 check_warn(f"Orphan alias: {wrapper.name} → profile '{_m.group(1)}' no longer exists")
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "doctor.run_doctor", e, exc_info=True)
                         pass
     except ImportError:
         pass
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "doctor.run_doctor", e, exc_info=True)
         pass
 
     # =========================================================================

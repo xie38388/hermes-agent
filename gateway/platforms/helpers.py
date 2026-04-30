@@ -1,3 +1,26 @@
+"""
+Shared Platform Adapter Utilities
+==================================
+
+This module centralizes logic that was previously duplicated across multiple
+platform adapters.  When adding new shared functionality, place it here and
+import from the relevant adapter files.
+
+Shared utilities in this module:
+- strip_markdown()           — Strip markdown for plain-text platforms (SMS, iMessage, etc.)
+- redact_phone()             — Redact phone numbers for logging
+- TextBatchAggregator        — Debounce rapid message events into single dispatches
+- ThreadParticipationTracker — Track bot thread participation across restarts
+
+Shared utilities in base.py (import from gateway.platforms.base):
+- _ssrf_redirect_guard()     — SSRF protection for redirect-following HTTP clients
+- is_network_accessible()    — Check if a URL is safe to fetch (not internal/private)
+- download_and_cache_image() — Download platform images to local cache for vision tool
+- _send_with_retry()         — Retry logic for message sending with exponential backoff
+
+When adding new platform adapters, prefer importing from these shared modules
+over copy-pasting implementations.
+"""
 """Shared helper classes for gateway platform adapters.
 
 Extracts common patterns that were duplicated across 5-7 adapters:
@@ -108,11 +131,11 @@ class TextBatchAggregator:
         chunk_len = len(event.text or "")
         existing = self._pending.get(key)
         if not existing:
-            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
             self._pending[key] = event
         else:
             existing.text = f"{existing.text}\n{event.text}"
-            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
 
         # Cancel prior flush timer, start a new one
         prior = self._pending_tasks.get(key)
@@ -219,7 +242,8 @@ class ThreadParticipationTracker:
         if path.exists():
             try:
                 return set(json.loads(path.read_text(encoding="utf-8")))
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "helpers._load", e, exc_info=True)
                 pass
         return set()
 

@@ -1182,7 +1182,8 @@ class SkillsShSource(SkillSource):
         for base_path in base_paths:
             try:
                 skills = self.github._list_skills_in_repo(repo, base_path)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "skills_hub._discover_identifier", e, exc_info=True)
                 continue
             for meta in skills:
                 if self._matches_skill_tokens(meta, tokens):
@@ -1219,12 +1220,14 @@ class SkillsShSource(SkillSource):
                         # Try listing skills in this directory
                         try:
                             skills = self.github._list_skills_in_repo(repo, dir_name + "/")
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("Suppressed exception in %s: %s", "skills_hub._discover_identifier", e, exc_info=True)
                             continue
                         for meta in skills:
                             if self._matches_skill_tokens(meta, tokens):
                                 return meta.identifier
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "skills_hub._discover_identifier", e, exc_info=True)
             pass
 
         return None
@@ -3015,7 +3018,8 @@ def parallel_search_sources(
                     all_results.extend(results)
                     if on_source_done:
                         on_source_done(sid, len(results))
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "skills_hub.parallel_search_sources", e, exc_info=True)
                     pass
         except TimeoutError:
             timed_out_ids = [

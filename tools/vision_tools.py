@@ -61,7 +61,8 @@ def _resolve_download_timeout() -> float:
         val = cfg.get("auxiliary", {}).get("vision", {}).get("download_timeout")
         if val is not None:
             return float(val)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "vision_tools._resolve_download_timeout", e, exc_info=True)
         pass
     return 30.0
 
@@ -559,7 +560,8 @@ async def vision_analyze_tool(
             _vt = _cfg.get("auxiliary", {}).get("vision", {}).get("timeout")
             if _vt is not None:
                 vision_timeout = float(_vt)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "vision_tools.vision_analyze_tool", e, exc_info=True)
             pass
         call_kwargs = {
             "task": "vision",

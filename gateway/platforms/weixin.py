@@ -37,7 +37,7 @@ try:
 
     AIOHTTP_AVAILABLE = True
 except ImportError:  # pragma: no cover - dependency gate
-    aiohttp = None  # type: ignore[assignment]
+    aiohttp = None  # type: ignore[assignment]  # optional dependency fallback
     AIOHTTP_AVAILABLE = False
 
 try:
@@ -46,10 +46,10 @@ try:
 
     CRYPTO_AVAILABLE = True
 except ImportError:  # pragma: no cover - dependency gate
-    default_backend = None  # type: ignore[assignment]
-    Cipher = None  # type: ignore[assignment]
-    algorithms = None  # type: ignore[assignment]
-    modes = None  # type: ignore[assignment]
+    default_backend = None  # type: ignore[assignment]  # optional dependency fallback
+    Cipher = None  # type: ignore[assignment]  # optional dependency fallback
+    algorithms = None  # type: ignore[assignment]  # optional dependency fallback
+    modes = None  # type: ignore[assignment]  # optional dependency fallback
     CRYPTO_AVAILABLE = False
 
 from gateway.config import Platform, PlatformConfig

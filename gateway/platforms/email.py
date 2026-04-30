@@ -396,7 +396,8 @@ class EmailAdapter(BasePlatformAdapter):
             finally:
                 try:
                     imap.logout()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "email._fetch_new_messages", e, exc_info=True)
                     pass
         except Exception as e:
             logger.error("[Email] IMAP fetch error: %s", e)

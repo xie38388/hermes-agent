@@ -66,6 +66,7 @@ CONFIGURABLE_TOOLSETS = [
     ("rl",              "🧪 RL Training",               "Tinker-Atropos training tools"),
     ("homeassistant",    "🏠 Home Assistant",           "smart home device control"),
     ("presenton",       "📊 Presentation Generation", "generate PPTX presentations"),
+    ("webdev",          "🌐 WebDev Project Tools",   "init, checkpoint, status, restart, secrets, debug"),
 ]
 
 # Toolsets that are OFF by default for new installs.
@@ -85,7 +86,8 @@ def _get_effective_configurable_toolsets():
         from hermes_cli.plugins import discover_plugins, get_plugin_toolsets
         discover_plugins()  # idempotent — ensures plugins are loaded
         result.extend(get_plugin_toolsets())
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "tools_config._get_effective_configurable_toolsets", e, exc_info=True)
         pass
     return result
 

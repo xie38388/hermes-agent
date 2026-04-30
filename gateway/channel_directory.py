@@ -137,7 +137,8 @@ def _build_slack(adapter) -> List[Dict[str, str]]:
     try:
         from tools.send_message_tool import _send_slack  # noqa: F401
         # Use the Slack Web API directly if available
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "channel_directory._build_slack", e, exc_info=True)
         pass
 
     # Fallback to session data

@@ -358,7 +358,8 @@ class TermuxAudioRecorder:
             self._current_rms = 0
         try:
             self._stop_termux_recording()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "voice_mode.cancel", e, exc_info=True)
             pass
         if path and os.path.isfile(path):
             try:
@@ -554,7 +555,8 @@ class AudioRecorder:
             if stream is not None:
                 try:
                     stream.close()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "voice_mode._safe_cb", e, exc_info=True)
                     pass
             raise RuntimeError(
                 f"Failed to open audio input stream: {e}. "
@@ -621,7 +623,8 @@ class AudioRecorder:
             try:
                 stream.stop()
                 stream.close()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "voice_mode._do_close", e, exc_info=True)
                 pass
 
         t = threading.Thread(target=_do_close, daemon=True)
@@ -830,13 +833,15 @@ def stop_playback() -> None:
         try:
             proc.terminate()
             logger.info("Audio playback interrupted")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "voice_mode.stop_playback", e, exc_info=True)
             pass
     # Also stop sounddevice playback if active
     try:
         sd, _ = _import_audio()
         sd.stop()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "voice_mode.stop_playback", e, exc_info=True)
         pass
 
 

@@ -497,7 +497,8 @@ def _stop_training_run(run_state: RunState):
         if fh is not None:
             try:
                 fh.close()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "rl_training_tool._stop_training_run", e, exc_info=True)
                 pass
             setattr(run_state, attr, None)
 

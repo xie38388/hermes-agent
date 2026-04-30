@@ -337,7 +337,8 @@ def discover_all_skill_config_vars() -> List[Dict[str, Any]]:
             try:
                 raw = skill_file.read_text(encoding="utf-8")
                 frontmatter, _ = parse_frontmatter(raw)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "skill_utils.discover_all_skill_config_vars", e, exc_info=True)
                 continue
 
             skill_name = frontmatter.get("name") or skill_file.parent.name
@@ -391,7 +392,8 @@ def resolve_skill_config_values(
             parsed = yaml_load(config_path.read_text(encoding="utf-8"))
             if isinstance(parsed, dict):
                 config = parsed
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "skill_utils.resolve_skill_config_values", e, exc_info=True)
             pass
 
     resolved: Dict[str, Any] = {}

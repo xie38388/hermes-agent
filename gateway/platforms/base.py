@@ -787,7 +787,8 @@ class BasePlatformAdapter(ABC):
         try:
             from gateway.status import write_runtime_status
             write_runtime_status(platform=self.platform.value, platform_state="connected", error_code=None, error_message=None)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "base._mark_connected", e, exc_info=True)
             pass
 
     def _mark_disconnected(self) -> None:
@@ -797,7 +798,8 @@ class BasePlatformAdapter(ABC):
         try:
             from gateway.status import write_runtime_status
             write_runtime_status(platform=self.platform.value, platform_state="disconnected", error_code=None, error_message=None)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "base._mark_disconnected", e, exc_info=True)
             pass
 
     def _set_fatal_error(self, code: str, message: str, *, retryable: bool) -> None:
@@ -813,7 +815,8 @@ class BasePlatformAdapter(ABC):
                 error_code=code,
                 error_message=message,
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "base._set_fatal_error", e, exc_info=True)
             pass
 
     async def _notify_fatal_error(self) -> None:
@@ -1272,7 +1275,8 @@ class BasePlatformAdapter(ABC):
             if hasattr(self, "stop_typing"):
                 try:
                     await self.stop_typing(chat_id)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "base._keep_typing", e, exc_info=True)
                     pass
             self._typing_paused.discard(chat_id)
 
@@ -1803,7 +1807,8 @@ class BasePlatformAdapter(ABC):
             try:
                 if hasattr(self, "stop_typing"):
                     await self.stop_typing(event.source.chat_id)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "base._record_delivery", e, exc_info=True)
                 pass
             # Clean up session tracking
             if session_key in self._active_sessions:

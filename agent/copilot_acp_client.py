@@ -20,6 +20,8 @@ from collections import deque
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+import logging
+logger = logging.getLogger(__name__)
 
 ACP_MARKER_BASE_URL = "acp://copilot"
 _DEFAULT_TIMEOUT_SECONDS = 900.0
@@ -294,7 +296,8 @@ class CopilotACPClient:
         except Exception:
             try:
                 proc.kill()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "copilot_acp_client.close", e, exc_info=True)
                 pass
 
     def _create_chat_completion(

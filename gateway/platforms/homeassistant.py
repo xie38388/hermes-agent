@@ -26,7 +26,7 @@ try:
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
-    aiohttp = None  # type: ignore[assignment]
+    aiohttp = None  # type: ignore[assignment]  # optional dependency fallback
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (

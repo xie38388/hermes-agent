@@ -772,7 +772,8 @@ def _extract_error_body(error: Exception) -> dict:
             json_body = response.json()
             if isinstance(json_body, dict):
                 return json_body
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "error_classifier._extract_error_body", e, exc_info=True)
             pass
     return {}
 

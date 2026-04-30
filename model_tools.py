@@ -160,6 +160,7 @@ def _discover_tools():
         "tools.homeassistant_tool",
         "tools.presenton_tool",
         "tools.parallel_subtasks_tool",
+        "tools.webdev_tool",
     ]
     import importlib
     for mod_name in _modules:
@@ -537,7 +538,8 @@ def handle_function_call(
                 session_id=session_id or "",
                 tool_call_id=tool_call_id or "",
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "model_tools.handle_function_call", e, exc_info=True)
             pass
 
         if function_name == "execute_code":
@@ -567,7 +569,8 @@ def handle_function_call(
                 session_id=session_id or "",
                 tool_call_id=tool_call_id or "",
             )
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "model_tools.handle_function_call", e, exc_info=True)
             pass
 
         return result

@@ -433,7 +433,8 @@ def cmd_mcp_remove(args):
         from tools.mcp_oauth import remove_oauth_tokens
         remove_oauth_tokens(name)
         _success("Cleaned up OAuth tokens")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "mcp_config.cmd_mcp_remove", e, exc_info=True)
         pass
 
 

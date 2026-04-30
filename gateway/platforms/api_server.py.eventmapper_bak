@@ -37,7 +37,7 @@ try:
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
-    web = None  # type: ignore[assignment]
+    web = None  # type: ignore[assignment]  # optional dependency fallback
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (
@@ -45,12 +45,14 @@ from gateway.platforms.base import (
     SendResult,
     is_network_accessible,
 )
+from gateway.event_mapper import DomainEvent, EventMapper
 
 logger = logging.getLogger(__name__)
 
 # Default settings
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8642
+MAX_PORT_ATTEMPTS = 20  # Self-healing: try up to 20 ports before giving up
 MAX_STORED_RESPONSES = 100
 MAX_REQUEST_BYTES = 1_000_000  # 1 MB default limit for POST bodies
 CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
@@ -95,7 +97,8 @@ def _normalize_chat_content(
                     if text:
                         try:
                             parts.append(str(text)[:MAX_NORMALIZED_TEXT_LENGTH])
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("Suppressed exception in %s: %s", "api_server._normalize_chat_content", e, exc_info=True)
                             pass
                 # Silently skip image_url / other non-text parts
             elif isinstance(item, list):
@@ -220,7 +223,8 @@ class ResponseStore:
         """Close the database connection."""
         try:
             self._conn.close()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "api_server.close", e, exc_info=True)
             pass
 
     def __len__(self) -> int:
@@ -260,7 +264,7 @@ if AIOHTTP_AVAILABLE:
             response.headers.update(cors_headers)
         return response
 else:
-    cors_middleware = None  # type: ignore[assignment]
+    cors_middleware = None  # type: ignore[assignment]  # optional dependency fallback
 
 
 def _openai_error(message: str, err_type: str = "invalid_request_error", param: str = None, code: str = None) -> Dict[str, Any]:
@@ -289,7 +293,7 @@ if AIOHTTP_AVAILABLE:
                     return web.json_response(_openai_error("Invalid Content-Length header.", code="invalid_content_length"), status=400)
         return await handler(request)
 else:
-    body_limit_middleware = None  # type: ignore[assignment]
+    body_limit_middleware = None  # type: ignore[assignment]  # optional dependency fallback
 
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -306,7 +310,7 @@ if AIOHTTP_AVAILABLE:
             response.headers.setdefault(k, v)
         return response
 else:
-    security_headers_middleware = None  # type: ignore[assignment]
+    security_headers_middleware = None  # type: ignore[assignment]  # optional dependency fallback
 
 
 class _IdempotencyCache:
@@ -428,9 +432,44 @@ class APIServerAdapter(BasePlatformAdapter):
             profile = get_active_profile_name()
             if profile and profile not in ("default", "custom"):
                 return profile
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "api_server._resolve_model_name", e, exc_info=True)
             pass
         return "hermes-agent"
+
+    @staticmethod
+    def _find_available_port(preferred: int, host: str, max_attempts: int = MAX_PORT_ATTEMPTS) -> int:
+        """Try *preferred* first, then preferred+1 … preferred+max_attempts-1.
+
+        Returns the first port that is free (not listening).  Raises RuntimeError
+        if all candidates are occupied.
+
+        This mirrors Manus's ``findAvailablePort()`` self-healing pattern so that
+        multi-instance or dev scenarios don't fail on port conflicts.
+        """
+        for offset in range(max_attempts):
+            candidate = preferred + offset
+            if candidate > 65535:
+                break
+            try:
+                with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    s.connect((host if host != "0.0.0.0" else "127.0.0.1", candidate))
+                # Connection succeeded → port is in use
+                logger.debug("Port %d in use, trying next", candidate)
+                continue
+            except (ConnectionRefusedError, OSError):
+                # Connection refused → port is free
+                if offset > 0:
+                    logger.info(
+                        "Preferred port %d in use; auto-selected port %d (offset +%d)",
+                        preferred, candidate, offset,
+                    )
+                return candidate
+        raise RuntimeError(
+            f"All {max_attempts} ports ({preferred}–{preferred + max_attempts - 1}) are in use. "
+            f"Free a port or set a different base port via API_SERVER_PORT."
+        )
 
     def _cors_headers_for_origin(self, origin: str) -> Optional[Dict[str, str]]:
         """Return CORS headers for an allowed browser origin."""
@@ -921,7 +960,8 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 result, agent_usage = await agent_task
                 usage = agent_usage or usage
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._emit", e, exc_info=True)
                 pass
 
             # Finish chunk
@@ -945,7 +985,8 @@ class APIServerAdapter(BasePlatformAdapter):
             if agent is not None:
                 try:
                     agent.interrupt("SSE client disconnected")
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "api_server._emit", e, exc_info=True)
                     pass
             if not agent_task.done():
                 agent_task.cancel()
@@ -1564,58 +1605,35 @@ class APIServerAdapter(BasePlatformAdapter):
                 return
             try:
                 loop.call_soon_threadsafe(q.put_nowait, event)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._push", e, exc_info=True)
                 pass
 
         def _callback(event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs):
             logger.info('[EVENT_CB] event_type=%s tool=%s run=%s kwargs_keys=%s', event_type, tool_name, run_id, list(kwargs.keys()))
-            ts = time.time()
+            if event_type == "tool.completed" and tool_name == "image_generate":
+                logger.info('[IMAGE_DEBUG] is_error=%s result_preview=%s', kwargs.get('is_error'), str(kwargs.get('result', ''))[:500])
+
+            # --- EventMapper anti-corruption layer ---
+            # Domain events are constructed here; transport formatting is delegated to EventMapper.
+            domain_event = None
             if event_type == "tool.started":
-                evt = {
-                    "event": "tool.started",
-                    "run_id": run_id,
-                    "timestamp": ts,
-                    "tool": tool_name,
-                    "preview": preview,
-                }
-                # Include args when available (needed for todo/plan tracking)
-                if args is not None:
-                    import json as _json
-                    try:
-                        evt["args"] = _json.loads(_json.dumps(args))
-                    except (TypeError, ValueError):
-                        evt["args"] = str(args)
-                _push(evt)
+                domain_event = DomainEvent.tool_started(tool_name=tool_name, preview=preview, args=args)
             elif event_type == "tool.completed":
-                evt = {
-                    "event": "tool.completed",
-                    "run_id": run_id,
-                    "timestamp": ts,
-                    "tool": tool_name,
-                    "duration": round(kwargs.get("duration", 0), 3),
-                    "error": kwargs.get("is_error", False),
-                }
-                # Include tool result and args when available
-                if kwargs.get("result") is not None:
-                    result_str = str(kwargs["result"])
-                    # Cap result at 50KB to avoid oversized SSE frames
-                    evt["result"] = result_str[:50000] if len(result_str) > 50000 else result_str
-                if kwargs.get("args") is not None:
-                    import json as _json
-                    try:
-                        evt["args"] = _json.loads(_json.dumps(kwargs["args"]))
-                    except (TypeError, ValueError):
-                        evt["args"] = str(kwargs["args"])
-                _push(evt)
+                domain_event = DomainEvent.tool_completed(
+                    tool_name=tool_name,
+                    duration=kwargs.get("duration", 0),
+                    is_error=kwargs.get("is_error", False),
+                    result=str(kwargs["result"]) if kwargs.get("result") is not None else None,
+                    args=kwargs.get("args"),
+                )
             elif event_type == "reasoning.available":
-                _push({
-                    "event": "reasoning.available",
-                    "run_id": run_id,
-                    "timestamp": ts,
-                    "text": preview or "",
-                })
+                domain_event = DomainEvent.reasoning_available(text=preview or "")
             # _thinking and subagent_progress are intentionally not forwarded
 
+            if domain_event is not None:
+                sse_payload = EventMapper.to_run_event(domain_event, run_id=run_id)
+                _push(sse_payload)
         return _callback
 
     async def _handle_runs(self, request: "web.Request") -> "web.Response":
@@ -1663,7 +1681,8 @@ class APIServerAdapter(BasePlatformAdapter):
                     "timestamp": time.time(),
                     "delta": delta,
                 })
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._text_cb", e, exc_info=True)
                 pass
 
         instructions = body.get("instructions")
@@ -1763,13 +1782,15 @@ class APIServerAdapter(BasePlatformAdapter):
                         "timestamp": time.time(),
                         "error": str(exc),
                     })
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "api_server._run_sync", e, exc_info=True)
                     pass
             finally:
                 # Sentinel: signal SSE stream to close
                 try:
                     q.put_nowait(None)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "api_server._run_sync", e, exc_info=True)
                     pass
 
         task = asyncio.create_task(_run_and_close())
@@ -1807,11 +1828,13 @@ class APIServerAdapter(BasePlatformAdapter):
                     "run_id": run_id,
                     "timestamp": time.time(),
                 })
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._handle_cancel_run", e, exc_info=True)
                 pass
             try:
                 q.put_nowait(None)  # sentinel to close SSE stream
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._handle_cancel_run", e, exc_info=True)
                 pass
         # Cleanup
         self._run_tasks.pop(run_id, None)
@@ -1926,7 +1949,8 @@ class APIServerAdapter(BasePlatformAdapter):
                         break
                     elif msg.type == _aiohttp.WSMsgType.ERROR:
                         break
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._forward_server_to_client", e, exc_info=True)
                 pass
             finally:
                 if not ws_server.closed:
@@ -1943,7 +1967,8 @@ class APIServerAdapter(BasePlatformAdapter):
                         break
                     elif msg.type == _aiohttp.WSMsgType.ERROR:
                         break
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "api_server._forward_client_to_server", e, exc_info=True)
                 pass
             finally:
                 if not ws_client.closed:
@@ -1978,6 +2003,25 @@ class APIServerAdapter(BasePlatformAdapter):
     # BasePlatformAdapter interface
     # ------------------------------------------------------------------
 
+
+    # ---- Static file serving for generated images ----
+    GENERATED_FILES_DIR = "/tmp/hermes_generated"
+
+    async def _handle_serve_file(self, request: web.Request) -> web.Response:
+        """Serve generated files (images, etc.) from the local temp directory."""
+        filename = request.match_info.get("filename", "")
+        if not filename or ".." in filename or "/" in filename:
+            return web.json_response({"error": "Invalid filename"}, status=400)
+        filepath = os.path.join(self.GENERATED_FILES_DIR, filename)
+        if not os.path.isfile(filepath):
+            return web.json_response({"error": "File not found"}, status=404)
+        # Guess content type
+        ext = os.path.splitext(filename)[1].lower()
+        ct_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                   ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
+        content_type = ct_map.get(ext, "application/octet-stream")
+        return web.FileResponse(filepath, headers={"Content-Type": content_type, "Cache-Control": "public, max-age=86400"})
+
     async def connect(self) -> bool:
         """Start the aiohttp web server."""
         if not AIOHTTP_AVAILABLE:
@@ -2009,6 +2053,7 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/v1/runs", self._handle_runs)
             self._app.router.add_get("/v1/runs/{run_id}/events", self._handle_run_events)
             self._app.router.add_get("/v1/vnc/ws", self._handle_vnc_ws)
+            self._app.router.add_get("/v1/files/{filename}", self._handle_serve_file)
             self._app.router.add_post("/v1/runs/{run_id}/cancel", self._handle_cancel_run)
             # Start background sweep to clean up orphaned (unconsumed) run streams
             sweep_task = asyncio.create_task(self._sweep_orphaned_runs())
@@ -2045,15 +2090,12 @@ class APIServerAdapter(BasePlatformAdapter):
                 except ImportError:
                     pass
 
-            # Port conflict detection — fail fast if port is already in use
+            # Self-healing port allocation (mechanism 52) — try up to MAX_PORT_ATTEMPTS ports
             try:
-                with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _s:
-                    _s.settimeout(1)
-                    _s.connect(('127.0.0.1', self._port))
-                logger.error('[%s] Port %d already in use. Set a different port in config.yaml: platforms.api_server.port', self.name, self._port)
+                self._port = self._find_available_port(self._port, self._host)
+            except RuntimeError as port_err:
+                logger.error('[%s] %s', self.name, port_err)
                 return False
-            except (ConnectionRefusedError, OSError):
-                pass  # port is free
 
             self._runner = web.AppRunner(self._app)
             await self._runner.setup()

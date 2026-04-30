@@ -44,7 +44,7 @@ from utils import env_var_enabled
 try:
     import yaml
 except ImportError:  # pragma: no cover – yaml is optional at import time
-    yaml = None  # type: ignore[assignment]
+    yaml = None  # type: ignore[assignment]  # optional dependency fallback
 
 logger = logging.getLogger(__name__)
 
@@ -447,7 +447,7 @@ class PluginManager:
 
     def _load_directory_module(self, manifest: PluginManifest) -> types.ModuleType:
         """Import a directory-based plugin as ``hermes_plugins.<name>``."""
-        plugin_dir = Path(manifest.path)  # type: ignore[arg-type]
+        plugin_dir = Path(manifest.path)  # type: ignore[arg-type]  # Path coerced to str at runtime
         init_file = plugin_dir / "__init__.py"
         if not init_file.exists():
             raise FileNotFoundError(f"No __init__.py in {plugin_dir}")
@@ -455,7 +455,7 @@ class PluginManager:
         # Ensure the namespace parent package exists
         if _NS_PARENT not in sys.modules:
             ns_pkg = types.ModuleType(_NS_PARENT)
-            ns_pkg.__path__ = []  # type: ignore[attr-defined]
+            ns_pkg.__path__ = []  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
             ns_pkg.__package__ = _NS_PARENT
             sys.modules[_NS_PARENT] = ns_pkg
 
@@ -470,7 +470,7 @@ class PluginManager:
 
         module = importlib.util.module_from_spec(spec)
         module.__package__ = module_name
-        module.__path__ = [str(plugin_dir)]  # type: ignore[attr-defined]
+        module.__path__ = [str(plugin_dir)]  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
         return module

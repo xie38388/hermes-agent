@@ -51,7 +51,7 @@ def _enable_managed_nous_tools(monkeypatch):
 
 def _install_fake_tools_package():
     tools_package = types.ModuleType("tools")
-    tools_package.__path__ = [str(TOOLS_DIR)]  # type: ignore[attr-defined]
+    tools_package.__path__ = [str(TOOLS_DIR)]  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
     sys.modules["tools"] = tools_package
     sys.modules["tools.debug_helpers"] = types.SimpleNamespace(
         DebugSession=lambda *args, **kwargs: types.SimpleNamespace(

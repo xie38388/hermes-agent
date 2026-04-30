@@ -13,6 +13,8 @@ import os
 import sys
 import shutil
 from pathlib import Path
+import logging
+logger = logging.getLogger(__name__)
 
 # Resolve project root
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -208,7 +210,8 @@ def check_env_vars():
                     )
                     if r.status_code == 200:
                         label = f"{r.json().get('username', '?')} ({mask(uid)})"
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "discord-voice-doctor.check_env_vars", e, exc_info=True)
                     pass
             user_labels.append(label)
         check("DISCORD_ALLOWED_USERS", True, f"{len(users)} user(s): {', '.join(user_labels)}")

@@ -273,7 +273,8 @@ class ManagedModalEnvironment(BaseModalExecutionEnvironment):
                 if isinstance(message, str) and message:
                     return f"{prefix}: {message}"
                 return f"{prefix}: {json.dumps(payload, ensure_ascii=False)}"
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "managed_modal._format_error", e, exc_info=True)
             pass
 
         text = response.text.strip()

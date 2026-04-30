@@ -442,7 +442,8 @@ def _get_public_gateway_host() -> str:
             _cached_public_ip = resp.text.strip()
             logger.info("Public gateway host from ipify: %s", _cached_public_ip)
             return _cached_public_ip
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "image_generation_tool._get_public_gateway_host", e, exc_info=True)
         pass
     # 3. Fall back to API_SERVER_HOST
     host = os.getenv("API_SERVER_HOST", "0.0.0.0")

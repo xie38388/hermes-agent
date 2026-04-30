@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from hermes_constants import get_hermes_home
 from typing import Any, Optional
+import logging
+logger = logging.getLogger(__name__)
 
 _GATEWAY_KIND = "hermes-gateway"
 _RUNTIME_STATUS_FILE = "gateway_state.json"
@@ -269,7 +271,8 @@ def remove_pid_file() -> None:
     """Remove the gateway PID file if it exists."""
     try:
         _get_pid_path().unlink(missing_ok=True)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "status.remove_pid_file", e, exc_info=True)
         pass
 
 

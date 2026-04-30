@@ -13,6 +13,8 @@ import urllib.request
 import urllib.error
 from difflib import get_close_matches
 from typing import Any, Optional
+import logging
+logger = logging.getLogger(__name__)
 
 COPILOT_BASE_URL = "https://api.githubcopilot.com"
 COPILOT_MODELS_URL = f"{COPILOT_BASE_URL}/models"
@@ -792,7 +794,8 @@ def _resolve_nous_pricing_credentials() -> tuple[str, str]:
         creds = resolve_nous_runtime_credentials()
         if creds:
             return (creds.get("api_key", ""), creds.get("base_url", ""))
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "models._resolve_nous_pricing_credentials", e, exc_info=True)
         pass
     return ("", "")
 
@@ -866,7 +869,8 @@ def list_available_providers() -> list[dict[str, str]]:
             else:
                 status = get_auth_status(pid)
                 has_creds = bool(status.get("logged_in") or status.get("configured"))
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "models.list_available_providers", e, exc_info=True)
             pass
         result.append({
             "id": pid,
@@ -921,7 +925,8 @@ def _get_custom_base_url() -> str:
         model_cfg = config.get("model", {})
         if isinstance(model_cfg, dict):
             return str(model_cfg.get("base_url", "")).strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "models._get_custom_base_url", e, exc_info=True)
         pass
     return ""
 
@@ -1017,7 +1022,8 @@ def detect_provider_for_model(
                     if os.getenv(env_var, "").strip():
                         has_creds = True
                         break
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "models.detect_provider_for_model", e, exc_info=True)
             pass
 
         if has_creds:
@@ -1195,7 +1201,8 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
             live = _fetch_github_models(_resolve_copilot_catalog_api_key())
             if live:
                 return live
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "models.provider_model_ids", e, exc_info=True)
             pass
         if normalized == "copilot-acp":
             return list(_PROVIDER_MODELS.get("copilot", []))
@@ -1208,7 +1215,8 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
                 live = fetch_nous_models(api_key=creds.get("api_key", ""), inference_base_url=creds.get("base_url", ""))
                 if live:
                     return live
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "models.provider_model_ids", e, exc_info=True)
             pass
     if normalized == "anthropic":
         live = _fetch_anthropic_models()
@@ -1364,7 +1372,8 @@ def fetch_github_model_catalog(
                     models.append(item)
                 if models:
                     return models
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "models.fetch_github_model_catalog", e, exc_info=True)
             continue
     return None
 
@@ -1676,7 +1685,8 @@ def probe_api_models(
                     "suggested_base_url": alternate_base if alternate_base != candidate_base else normalized,
                     "used_fallback": is_fallback,
                 }
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "models.probe_api_models", e, exc_info=True)
             continue
 
     return {

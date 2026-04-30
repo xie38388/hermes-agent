@@ -48,7 +48,8 @@ def resolve_active_host() -> str:
         profile = get_active_profile_name()
         if profile and profile not in ("default", "custom"):
             return f"{HOST}.{profile}"
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "client.resolve_active_host", e, exc_info=True)
         pass
     return HOST
 
@@ -519,7 +520,8 @@ def get_honcho_client(config: HonchoClientConfig | None = None) -> Honcho:
             honcho_cfg = hermes_cfg.get("honcho", {})
             if isinstance(honcho_cfg, dict):
                 resolved_base_url = honcho_cfg.get("base_url", "").strip() or None
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "client.get_honcho_client", e, exc_info=True)
             pass
 
     if resolved_base_url:

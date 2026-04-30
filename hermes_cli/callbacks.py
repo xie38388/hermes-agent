@@ -13,6 +13,8 @@ import getpass
 from hermes_cli.banner import cprint, _DIM, _RST
 from hermes_cli.config import save_env_value_secure
 from hermes_constants import display_hermes_home
+import logging
+logger = logging.getLogger(__name__)
 
 
 def clarify_callback(cli, question, choices):
@@ -113,12 +115,14 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
     if hasattr(cli, "_clear_secret_input_buffer"):
         try:
             cli._clear_secret_input_buffer()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "callbacks.prompt_for_secret", e, exc_info=True)
             pass
     elif hasattr(cli, "_app") and cli._app:
         try:
             cli._app.current_buffer.reset()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "callbacks.prompt_for_secret", e, exc_info=True)
             pass
 
     if hasattr(cli, "_app") and cli._app:
@@ -163,12 +167,14 @@ def prompt_for_secret(cli, var_name: str, prompt: str, metadata=None) -> dict:
     if hasattr(cli, "_clear_secret_input_buffer"):
         try:
             cli._clear_secret_input_buffer()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "callbacks.prompt_for_secret", e, exc_info=True)
             pass
     elif hasattr(cli, "_app") and cli._app:
         try:
             cli._app.current_buffer.reset()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "callbacks.prompt_for_secret", e, exc_info=True)
             pass
     if hasattr(cli, "_app") and cli._app:
         cli._app.invalidate()

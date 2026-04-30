@@ -181,7 +181,8 @@ def _load_direct_aliases() -> dict[str, DirectAlias]:
                     merged[name.strip().lower()] = DirectAlias(
                         model=model, provider=provider, base_url=base_url,
                     )
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "model_switch._load_direct_aliases", e, exc_info=True)
         pass
     return merged
 
@@ -460,7 +461,8 @@ def switch_model(
                     _switch_err += "\n\nRun 'hermes doctor' — config issues detected:"
                     for _ci in _cfg_issues[:3]:
                         _switch_err += f"\n  • {_ci.message}"
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "model_switch.switch_model", e, exc_info=True)
                 pass
             return ModelSwitchResult(
                 success=False,
@@ -637,7 +639,8 @@ def switch_model(
             api_key = runtime.get("api_key", "")
             base_url = runtime.get("base_url", "")
             api_mode = runtime.get("api_mode", "")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "model_switch.switch_model", e, exc_info=True)
             pass
 
     # --- Direct alias override: use exact base_url from the alias if set ---

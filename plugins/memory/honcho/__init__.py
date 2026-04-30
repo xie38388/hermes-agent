@@ -175,7 +175,8 @@ class HonchoMemoryProvider(MemoryProvider):
         if config_path.exists():
             try:
                 existing = json.loads(config_path.read_text())
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "__init__.save_config", e, exc_info=True)
                 pass
         existing.update(values)
         config_path.write_text(json.dumps(existing, indent=2))
@@ -709,7 +710,8 @@ class HonchoMemoryProvider(MemoryProvider):
         if self._manager:
             try:
                 self._manager.flush_all()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "__init__.shutdown", e, exc_info=True)
                 pass
 
 

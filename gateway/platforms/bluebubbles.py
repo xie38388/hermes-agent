@@ -231,7 +231,8 @@ class BlueBubblesAdapter(BasePlatformAdapter):
             data = res.get("data")
             if isinstance(data, list):
                 return [wh for wh in data if wh.get("url") == url]
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "bluebubbles._find_registered_webhooks", e, exc_info=True)
             pass
         return []
 
@@ -351,7 +352,8 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                     if (part.get("address") or "").strip() == target and guid:
                         self._guid_cache[target] = guid
                         return guid
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "bluebubbles._resolve_chat_guid", e, exc_info=True)
             pass
         return None
 
@@ -565,7 +567,8 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 await self.client.post(
                     self._api_url(f"/api/v1/chat/{encoded}/typing"), timeout=5
                 )
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "bluebubbles.send_typing", e, exc_info=True)
             pass
 
     async def stop_typing(self, chat_id: str) -> None:
@@ -578,7 +581,8 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 await self.client.delete(
                     self._api_url(f"/api/v1/chat/{encoded}/typing"), timeout=5
                 )
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "bluebubbles.stop_typing", e, exc_info=True)
             pass
 
     # ------------------------------------------------------------------
@@ -596,7 +600,8 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                     self._api_url(f"/api/v1/chat/{encoded}/read"), timeout=5
                 )
                 return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "bluebubbles.mark_read", e, exc_info=True)
             pass
         return False
 
@@ -664,7 +669,8 @@ class BlueBubblesAdapter(BasePlatformAdapter):
                 info["name"] = display_name
                 if participants:
                     info["participants"] = participants
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "bluebubbles.get_chat_info", e, exc_info=True)
             pass
         return info
 

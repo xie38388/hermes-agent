@@ -31,6 +31,8 @@ from email.utils import parsedate_to_datetime
 from html import escape as xml_escape
 from pathlib import Path
 from typing import Any
+import logging
+logger = logging.getLogger(__name__)
 
 TWILIO_API_BASE = "https://api.twilio.com/2010-04-01/Accounts"
 VAPI_API_BASE = "https://api.vapi.ai"
@@ -151,7 +153,8 @@ def _load_state(path: Path | None = None) -> dict[str, Any]:
         if isinstance(data, dict):
             data.setdefault("version", STATE_VERSION)
             return data
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "telephony._load_state", e, exc_info=True)
         pass
     return {"version": STATE_VERSION}
 

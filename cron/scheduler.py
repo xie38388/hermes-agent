@@ -128,7 +128,8 @@ def _resolve_delivery_target(job: dict) -> Optional[dict]:
                     chat_id, thread_id = parsed_chat_id, parsed_thread_id
                 else:
                     chat_id = resolved
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "scheduler._resolve_delivery_target", e, exc_info=True)
             pass
 
         return {
@@ -281,7 +282,8 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     try:
         user_cfg = load_config()
         wrap_response = user_cfg.get("cron", {}).get("wrap_response", True)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "scheduler._deliver_result", e, exc_info=True)
         pass
 
     if wrap_response:
@@ -463,7 +465,8 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
             from agent.redact import redact_sensitive_text
             stdout = redact_sensitive_text(stdout)
             stderr = redact_sensitive_text(stderr)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "scheduler._run_job_script", e, exc_info=True)
             pass
 
         if result.returncode != 0:
@@ -647,7 +650,8 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             _net_cfg = _cfg.get("network", {})
             if isinstance(_net_cfg, dict) and _net_cfg.get("force_ipv4"):
                 apply_ipv4_preference(force=True)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "scheduler.run_job", e, exc_info=True)
             pass
 
         # Reasoning config from config.yaml
@@ -787,7 +791,8 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                         try:
                             _act = agent.get_activity_summary()
                             _idle_secs = _act.get("seconds_since_activity", 0.0)
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("Suppressed exception in %s: %s", "scheduler.run_job", e, exc_info=True)
                             pass
                     if _idle_secs >= _cron_inactivity_limit:
                         _inactivity_timeout = True
@@ -804,7 +809,8 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
             if hasattr(agent, "get_activity_summary"):
                 try:
                     _activity = agent.get_activity_summary()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "scheduler.run_job", e, exc_info=True)
                     pass
             _last_desc = _activity.get("last_activity_desc", "unknown")
             _secs_ago = _activity.get("seconds_since_activity", 0)

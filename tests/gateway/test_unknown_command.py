@@ -153,7 +153,7 @@ async def test_underscored_alias_for_hyphenated_builtin_not_flagged(monkeypatch)
     async def _noop_reload(*_a, **_kw):
         return "mcp reloaded"
 
-    runner._handle_reload_mcp_command = _noop_reload  # type: ignore[attr-defined]
+    runner._handle_reload_mcp_command = _noop_reload  # type: ignore[attr-defined]  # see inline context
 
     monkeypatch.setattr(
         gateway_run, "_resolve_runtime_agent_kwargs", lambda: {"api_key": "***"}

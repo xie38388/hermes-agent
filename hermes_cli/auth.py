@@ -386,7 +386,8 @@ def _resolve_api_key_provider_secret(
                 return token, source
         except ValueError as exc:
             logger.warning("Copilot token validation failed: %s", exc)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "auth._resolve_api_key_provider_secret", e, exc_info=True)
             pass
         return "", ""
 
@@ -796,7 +797,8 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
         active = (auth_store.get("active_provider") or "").strip().lower()
         if active and active == normalized:
             return True
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "auth.is_provider_explicitly_configured", e, exc_info=True)
         pass
 
     # 2. Check config.yaml model.provider
@@ -808,7 +810,8 @@ def is_provider_explicitly_configured(provider_id: str) -> bool:
             cfg_provider = (model_cfg.get("provider") or "").strip().lower()
             if cfg_provider == normalized:
                 return True
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "auth.is_provider_explicitly_configured", e, exc_info=True)
         pass
 
     # 3. Check provider-specific env vars
@@ -1401,7 +1404,8 @@ def refresh_codex_oauth_pure(
                 err_desc = err.get("error_description") or err.get("message")
                 if isinstance(err_desc, str) and err_desc.strip():
                     message = f"Codex token refresh failed: {err_desc.strip()}"
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "auth.refresh_codex_oauth_pure", e, exc_info=True)
             pass
         if code in {"invalid_grant", "invalid_token", "invalid_request"}:
             relogin_required = True
@@ -2330,7 +2334,8 @@ def get_codex_auth_status() -> Dict[str, Any]:
                         "source": f"pool:{getattr(entry, 'label', 'unknown')}",
                         "api_key": api_key,
                     }
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "auth.get_codex_auth_status", e, exc_info=True)
         pass
 
     # Fall back to legacy provider state
@@ -2628,7 +2633,7 @@ def _prompt_model_selection(
     has_cache = False
     if has_pricing:
         for mid in all_models:
-            p = pricing.get(mid)  # type: ignore[union-attr]
+            p = pricing.get(mid)  # type: ignore[union-attr]  # guarded by preceding None check
             if p:
                 inp = _format_price_per_mtok(p.get("prompt", ""))
                 out = _format_price_per_mtok(p.get("completion", ""))

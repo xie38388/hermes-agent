@@ -49,18 +49,18 @@ def _install_fake_tools_package(*, credential_mounts=None):
     _reset_modules(("tools", "agent", "hermes_cli"))
 
     hermes_cli = types.ModuleType("hermes_cli")
-    hermes_cli.__path__ = []  # type: ignore[attr-defined]
+    hermes_cli.__path__ = []  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
     sys.modules["hermes_cli"] = hermes_cli
     sys.modules["hermes_cli.config"] = types.SimpleNamespace(
         get_hermes_home=lambda: Path(tempfile.gettempdir()) / "hermes-home",
     )
 
     tools_package = types.ModuleType("tools")
-    tools_package.__path__ = [str(TOOLS_DIR)]  # type: ignore[attr-defined]
+    tools_package.__path__ = [str(TOOLS_DIR)]  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
     sys.modules["tools"] = tools_package
 
     env_package = types.ModuleType("tools.environments")
-    env_package.__path__ = [str(TOOLS_DIR / "environments")]  # type: ignore[attr-defined]
+    env_package.__path__ = [str(TOOLS_DIR / "environments")]  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
     sys.modules["tools.environments"] = env_package
 
     interrupt_event = threading.Event()

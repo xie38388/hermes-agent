@@ -152,7 +152,7 @@ def _get_command_timeout() -> int:
     """
     global _cached_command_timeout, _command_timeout_resolved
     if _command_timeout_resolved:
-        return _cached_command_timeout  # type: ignore[return-value]
+        return _cached_command_timeout  # type: ignore[return-value]  # lastrowid is int when INSERT succeeds
 
     _command_timeout_resolved = True
     result = DEFAULT_COMMAND_TIMEOUT
@@ -2161,7 +2161,8 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
             _vt = _cfg.get("auxiliary", {}).get("vision", {}).get("timeout")
             if _vt is not None:
                 vision_timeout = float(_vt)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "browser_tool.browser_vision", e, exc_info=True)
             pass
 
         call_kwargs = {

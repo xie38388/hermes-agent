@@ -233,7 +233,8 @@ def _format_prefetch_context(static_facts: list, dynamic_facts: list, search_res
             if similarity is not None:
                 try:
                     prefix_bits.append(f"[{round(float(similarity) * 100)}%]")
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "__init__._format_prefetch_context", e, exc_info=True)
                     pass
             prefix = " ".join(prefix_bits)
             lines.append(f"- {prefix} {memory}".strip())
@@ -722,7 +723,8 @@ class SupermemoryMemoryProvider(MemoryProvider):
                 if item.get("similarity") is not None:
                     try:
                         entry["similarity"] = round(float(item["similarity"]) * 100)
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "__init__._tool_search", e, exc_info=True)
                         pass
                 formatted.append(entry)
             resp: dict[str, Any] = {"results": formatted, "count": len(formatted)}

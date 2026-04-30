@@ -97,7 +97,8 @@ def _detect_openclaw_processes() -> list[str]:
             )
             if result.stdout.strip():
                 found.append(f"node.exe process with openclaw in command line (PID {result.stdout.strip()})")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "claw._detect_openclaw_processes", e, exc_info=True)
             pass
     else:
         try:

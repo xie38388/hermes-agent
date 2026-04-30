@@ -144,7 +144,8 @@ class VoiceReceiver:
         self._running = False
         try:
             self._vc._connection.remove_socket_listener(self._on_packet)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "discord.stop", e, exc_info=True)
             pass
         with self._lock:
             self._buffers.clear()
@@ -338,7 +339,8 @@ class VoiceReceiver:
                 self._ssrc_to_user[ssrc] = uid
                 logger.info("Auto-mapped ssrc=%d -> user=%d (sole allowed member)", ssrc, uid)
                 return uid
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "discord._infer_user_for_ssrc", e, exc_info=True)
             pass
         return 0
 
@@ -1125,14 +1127,16 @@ class DiscordAdapter(BasePlatformAdapter):
         if self._on_voice_disconnect and text_ch_id:
             try:
                 self._on_voice_disconnect(str(text_ch_id))
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "discord._voice_timeout_handler", e, exc_info=True)
                 pass
         if text_ch_id and self._client:
             ch = self._client.get_channel(text_ch_id)
             if ch:
                 try:
                     await ch.send("Left voice channel (inactivity timeout).")
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "discord._voice_timeout_handler", e, exc_info=True)
                     pass
 
     def is_in_voice_channel(self, guild_id: int) -> bool:
@@ -1236,7 +1240,8 @@ class DiscordAdapter(BasePlatformAdapter):
                         vc = self._voice_clients.get(guild_id)
                         if vc and vc.is_connected():
                             vc._connection.send_packet(b'\xf8\xff\xfe')
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "discord._voice_listen_loop", e, exc_info=True)
                         pass
 
                 completed = receiver.check_silence()
@@ -2517,12 +2522,12 @@ class DiscordAdapter(BasePlatformAdapter):
         existing = self._pending_text_batches.get(key)
         chunk_len = len(event.text or "")
         if existing is None:
-            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
             self._pending_text_batches[key] = event
         else:
             if event.text:
                 existing.text = f"{existing.text}\n{event.text}" if existing.text else event.text
-            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
             if event.media_urls:
                 existing.media_urls.extend(event.media_urls)
                 existing.media_types.extend(event.media_types)

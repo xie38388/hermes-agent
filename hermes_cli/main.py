@@ -237,7 +237,8 @@ def _has_any_provider_configured() -> bool:
                 val = val.strip().strip("'\"")
                 if key.strip() in provider_env_vars and val:
                     return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "main._has_any_provider_configured", e, exc_info=True)
             pass
 
     # Check provider-specific auth fallbacks (for example, Copilot via gh auth).
@@ -248,7 +249,8 @@ def _has_any_provider_configured() -> bool:
             status = get_auth_status(provider_id)
             if status.get("logged_in"):
                 return True
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._has_any_provider_configured", e, exc_info=True)
         pass
 
     # Check for Nous Portal OAuth credentials
@@ -262,7 +264,8 @@ def _has_any_provider_configured() -> bool:
                 status = get_auth_status(active)
                 if status.get("logged_in"):
                     return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "main._has_any_provider_configured", e, exc_info=True)
             pass
 
 
@@ -286,7 +289,8 @@ def _has_any_provider_configured() -> bool:
             creds = read_claude_code_credentials()
             if creds and (is_claude_code_token_valid(creds) or creds.get("refreshToken")):
                 return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "main._has_any_provider_configured", e, exc_info=True)
             pass
 
     return False
@@ -495,7 +499,8 @@ def _session_browse_picker(sessions: list) -> Optional[str]:
         curses.wrapper(_curses_browse)
         return result_holder[0]
 
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._curses_browse", e, exc_info=True)
         pass
 
     # Fallback: numbered list (Windows without curses, etc.)
@@ -535,7 +540,8 @@ def _resolve_last_cli_session() -> Optional[str]:
         db.close()
         if sessions:
             return sessions[0]["id"]
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._resolve_last_cli_session", e, exc_info=True)
         pass
     return None
 
@@ -668,7 +674,8 @@ def _resolve_session_by_name_or_id(name_or_id: str) -> Optional[str]:
         session_id = db.resolve_session_by_title(name_or_id)
         db.close()
         return session_id
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._resolve_session_by_name_or_id", e, exc_info=True)
         pass
     return None
 
@@ -736,14 +743,16 @@ def cmd_chat(args):
     try:
         from hermes_cli.banner import prefetch_update_check
         prefetch_update_check()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main.cmd_chat", e, exc_info=True)
         pass
 
     # Sync bundled skills on every CLI launch (fast -- skips unchanged skills)
     try:
         from tools.skills_sync import sync_skills
         sync_skills(quiet=True)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main.cmd_chat", e, exc_info=True)
         pass
 
     # --yolo: bypass all dangerous command approvals
@@ -1252,7 +1261,8 @@ def _prompt_provider_choice(choices, *, default=0):
         if idx >= 0:
             print()
             return idx
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._prompt_provider_choice", e, exc_info=True)
         pass
 
     # Fallback: numbered list
@@ -1428,7 +1438,8 @@ def _model_flow_nous(config, current_model="", args=None):
         _nous_state = get_provider_auth_state("nous")
         if _nous_state:
             _nous_portal_url = _nous_state.get("portal_base_url", "")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._model_flow_nous", e, exc_info=True)
         pass
 
     if free_tier and not model_ids:
@@ -1515,14 +1526,16 @@ def _model_flow_openai_codex(config, current_model=""):
         _codex_status = get_codex_auth_status()
         if _codex_status.get("logged_in"):
             _codex_token = _codex_status.get("api_key")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._model_flow_openai_codex", e, exc_info=True)
         pass
     if not _codex_token:
         try:
             from hermes_cli.auth import resolve_codex_runtime_credentials
             _codex_creds = resolve_codex_runtime_credentials()
             _codex_token = _codex_creds.get("api_key")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "main._model_flow_openai_codex", e, exc_info=True)
             pass
 
     codex_models = get_codex_model_ids(access_token=_codex_token)
@@ -1571,7 +1584,8 @@ def _model_flow_qwen_oauth(_config, current_model=""):
     try:
         creds = resolve_qwen_runtime_credentials(refresh_if_expiring=True)
         models = fetch_api_models(creds["api_key"], creds["base_url"])
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._model_flow_qwen_oauth", e, exc_info=True)
         pass
     if not models:
         models = list(_DEFAULT_QWEN_PORTAL_MODELS)
@@ -2292,7 +2306,8 @@ def _model_flow_copilot_acp(config, current_model=""):
     try:
         catalog_creds = resolve_api_key_provider_credentials("copilot")
         catalog_api_key = catalog_creds.get("api_key", "")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._model_flow_copilot_acp", e, exc_info=True)
         pass
 
     catalog = fetch_github_model_catalog(catalog_api_key)
@@ -2516,7 +2531,8 @@ def _model_flow_api_key_provider(config, provider_id, current_model=""):
     try:
         from agent.models_dev import list_agentic_models
         mdev_models = list_agentic_models(provider_id)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._model_flow_api_key_provider", e, exc_info=True)
         pass
 
     if mdev_models:
@@ -2686,7 +2702,8 @@ def _model_flow_anthropic(config, current_model=""):
         cc_creds = read_claude_code_credentials()
         if cc_creds and is_claude_code_token_valid(cc_creds):
             cc_available = True
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._model_flow_anthropic", e, exc_info=True)
         pass
 
     has_creds = bool(existing_key) or cc_available
@@ -2886,7 +2903,8 @@ def cmd_version(args):
             )
         elif behind == 0:
             print("Up to date")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main.cmd_version", e, exc_info=True)
         pass
 
 
@@ -3086,7 +3104,8 @@ def _update_via_zip(args):
             print(f"  − {len(result['cleaned'])} removed from manifest")
         if not result["copied"] and not result.get("updated"):
             print("  ✓ Skills are up to date")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._update_via_zip", e, exc_info=True)
         pass
     
     print()
@@ -3286,7 +3305,8 @@ def _get_origin_url(git_cmd: list[str], cwd: Path) -> Optional[str]:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._get_origin_url", e, exc_info=True)
         pass
     return None
 
@@ -3347,7 +3367,8 @@ def _count_commits_between(git_cmd: list[str], cwd: Path, base: str, head: str) 
         )
         if result.returncode == 0:
             return int(result.stdout.strip())
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._count_commits_between", e, exc_info=True)
         pass
     return -1
 
@@ -3363,7 +3384,8 @@ def _mark_skip_upstream_prompt():
     try:
         from hermes_constants import get_hermes_home
         (get_hermes_home() / SKIP_UPSTREAM_PROMPT_FILE).touch()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "main._mark_skip_upstream_prompt", e, exc_info=True)
         pass
 
 
@@ -3509,7 +3531,8 @@ def _invalidate_update_cache():
             cache_file = home / ".update_check"
             if cache_file.exists():
                 cache_file.unlink()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "main._invalidate_update_cache", e, exc_info=True)
             pass
 
 
@@ -3984,7 +4007,8 @@ def cmd_update(args):
             if supports_systemd_services():
                 try:
                     _ensure_user_systemd_env()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "main.cmd_update", e, exc_info=True)
                     pass
 
                 for scope, scope_cmd in [("user", ["systemctl", "--user"]), ("system", ["systemctl"])]:

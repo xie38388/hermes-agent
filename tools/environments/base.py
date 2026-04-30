@@ -97,7 +97,8 @@ def _load_json_store(path: Path) -> dict:
     if path.exists():
         try:
             return json.loads(path.read_text())
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "base._load_json_store", e, exc_info=True)
             pass
     return {}
 
@@ -201,7 +202,8 @@ class _ThreadedProcessHandle:
         if self._cancel_fn:
             try:
                 self._cancel_fn()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "base.kill", e, exc_info=True)
                 pass
 
     def wait(self, timeout: float | None = None) -> int:
@@ -436,7 +438,8 @@ class BaseEnvironment(ABC):
                     try:
                         _elapsed = int(_now - (deadline - timeout))
                         _cb(f"terminal command running ({_elapsed}s elapsed)")
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "base._drain", e, exc_info=True)
                         pass
             time.sleep(0.2)
 
@@ -444,7 +447,8 @@ class BaseEnvironment(ABC):
 
         try:
             proc.stdout.close()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "base._drain", e, exc_info=True)
             pass
 
         return {"output": "".join(output_chunks), "returncode": proc.returncode}
@@ -568,7 +572,8 @@ class BaseEnvironment(ABC):
     def __del__(self):
         try:
             self.cleanup()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "base.__del__", e, exc_info=True)
             pass
 
     def _prepare_command(self, command: str) -> tuple[str, str | None]:

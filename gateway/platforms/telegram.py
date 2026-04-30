@@ -232,7 +232,8 @@ class TelegramAdapter(BasePlatformAdapter):
         try:
             if self._app and self._app.updater and self._app.updater.running:
                 await self._app.updater.stop()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "telegram._handle_polling_network_error", e, exc_info=True)
             pass
 
         try:
@@ -279,7 +280,8 @@ class TelegramAdapter(BasePlatformAdapter):
             try:
                 if self._app and self._app.updater and self._app.updater.running:
                     await self._app.updater.stop()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "telegram._handle_polling_conflict", e, exc_info=True)
                 pass
             await asyncio.sleep(RETRY_DELAY)
             try:
@@ -603,7 +605,7 @@ class TelegramAdapter(BasePlatformAdapter):
             try:
                 from telegram.error import NetworkError, TimedOut
             except ImportError:
-                NetworkError = TimedOut = OSError  # type: ignore[misc,assignment]
+                NetworkError = TimedOut = OSError  # type: ignore[misc,assignment]  # see inline context
             _max_connect = 3
             for _attempt in range(_max_connect):
                 try:
@@ -815,17 +817,17 @@ class TelegramAdapter(BasePlatformAdapter):
             try:
                 from telegram.error import NetworkError as _NetErr
             except ImportError:
-                _NetErr = OSError  # type: ignore[misc,assignment]
+                _NetErr = OSError  # type: ignore[misc,assignment]  # see inline context
 
             try:
                 from telegram.error import BadRequest as _BadReq
             except ImportError:
-                _BadReq = None  # type: ignore[assignment,misc]
+                _BadReq = None  # type: ignore[assignment,misc]  # optional dependency fallback
 
             try:
                 from telegram.error import TimedOut as _TimedOut
             except (ImportError, AttributeError):
-                _TimedOut = None  # type: ignore[assignment,misc]
+                _TimedOut = None  # type: ignore[assignment,misc]  # optional dependency fallback
 
             for i, chunk in enumerate(chunks):
                 should_thread = self._should_thread_reply(reply_to, i)
@@ -1352,7 +1354,8 @@ class TelegramAdapter(BasePlatformAdapter):
                         parse_mode=None,
                         reply_markup=None,
                     )
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "telegram.get_label", e, exc_info=True)
                     pass
             await query.answer(text="Model switched!")
 
@@ -2196,13 +2199,13 @@ class TelegramAdapter(BasePlatformAdapter):
         existing = self._pending_text_batches.get(key)
         chunk_len = len(event.text or "")
         if existing is None:
-            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
             self._pending_text_batches[key] = event
         else:
             # Append text from the follow-up chunk
             if event.text:
                 existing.text = f"{existing.text}\n{event.text}" if existing.text else event.text
-            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
             # Merge any media that might be attached
             if event.media_urls:
                 existing.media_urls.extend(event.media_urls)

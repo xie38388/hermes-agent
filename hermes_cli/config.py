@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
 from tools.tool_backend_helpers import managed_nous_tools_enabled as _managed_nous_tools_enabled
+import logging
+logger = logging.getLogger(__name__)
 
 _IS_WINDOWS = platform.system() == "Windows"
 _ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -1806,7 +1808,8 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                 save_env_value("ANTHROPIC_TOKEN", "")
                 if not quiet:
                     print("  ✓ Cleared ANTHROPIC_TOKEN from .env (no longer used)")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "config.migrate_config", e, exc_info=True)
             pass
 
     # ── Version 11 → 12: migrate custom_providers list → providers dict ──
@@ -1884,7 +1887,8 @@ def migrate_config(interactive: bool = True, quiet: bool = False) -> Dict[str, A
                     save_env_value(dead_var, "")
                     if not quiet:
                         print(f"  ✓ Cleared {dead_var} from .env (no longer used — config.yaml is source of truth)")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "config.migrate_config", e, exc_info=True)
                 pass
 
     # ── Version 13 → 14: migrate legacy flat stt.model to provider section ──
@@ -2227,7 +2231,8 @@ def read_raw_config() -> Dict[str, Any]:
         if config_path.exists():
             with open(config_path, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "config.read_raw_config", e, exc_info=True)
         pass
     return {}
 
@@ -2810,7 +2815,8 @@ def show_config():
                 skill_name = var.get("skill", "")
                 display_val = str(value) if value else color("(not set)", Colors.DIM)
                 print(f"  {key:<20s} {display_val}  {color(f'[{skill_name}]', Colors.DIM)}")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "config.show_config", e, exc_info=True)
         pass
 
     print()

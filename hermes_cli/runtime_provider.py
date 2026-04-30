@@ -62,7 +62,8 @@ def _auto_detect_local_model(base_url: str) -> str:
                 model_id = models[0].get("id", "")
                 if model_id:
                     return model_id
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "runtime_provider._auto_detect_local_model", e, exc_info=True)
         pass
     return ""
 

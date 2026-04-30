@@ -537,7 +537,8 @@ def resolve_provider_full(
                 base_url=mdev_info.api,
                 source="models.dev",
             )
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "providers.resolve_provider_full", e, exc_info=True)
         pass
 
     return None

@@ -60,7 +60,7 @@ def _install_modal_test_modules(
     _reset_modules(("tools", "hermes_cli", "modal"))
 
     hermes_cli = types.ModuleType("hermes_cli")
-    hermes_cli.__path__ = []  # type: ignore[attr-defined]
+    hermes_cli.__path__ = []  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
     sys.modules["hermes_cli"] = hermes_cli
     hermes_home = tmp_path / "hermes-home"
     os.environ["HERMES_HOME"] = str(hermes_home)
@@ -69,11 +69,11 @@ def _install_modal_test_modules(
     )
 
     tools_package = types.ModuleType("tools")
-    tools_package.__path__ = [str(TOOLS_DIR)]  # type: ignore[attr-defined]
+    tools_package.__path__ = [str(TOOLS_DIR)]  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
     sys.modules["tools"] = tools_package
 
     env_package = types.ModuleType("tools.environments")
-    env_package.__path__ = [str(TOOLS_DIR / "environments")]  # type: ignore[attr-defined]
+    env_package.__path__ = [str(TOOLS_DIR / "environments")]  # type: ignore[attr-defined]  # runtime namespace manipulation for plugin loading
     sys.modules["tools.environments"] = env_package
 
     class _DummyBaseEnvironment:

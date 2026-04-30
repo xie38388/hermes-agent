@@ -711,7 +711,8 @@ class YCBenchEvalEnv(HermesAgentBaseEnv):
             try:
                 from tools.terminal_tool import cleanup_all_environments
                 cleanup_all_environments()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "yc_bench_env.emit", e, exc_info=True)
                 pass
             if hasattr(self, "_streaming_file") and not self._streaming_file.closed:
                 self._streaming_file.close()
@@ -821,13 +822,15 @@ class YCBenchEvalEnv(HermesAgentBaseEnv):
         try:
             from tools.terminal_tool import cleanup_all_environments
             cleanup_all_environments()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "yc_bench_env.emit", e, exc_info=True)
             pass
 
         try:
             from environments.agent_loop import _tool_executor
             _tool_executor.shutdown(wait=False, cancel_futures=True)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "yc_bench_env.emit", e, exc_info=True)
             pass
 
     # =========================================================================

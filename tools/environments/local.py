@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 
 from tools.environments.base import BaseEnvironment, _pipe_stdin
+import logging
+logger = logging.getLogger(__name__)
 
 _IS_WINDOWS = platform.system() == "Windows"
 
@@ -290,7 +292,8 @@ class LocalEnvironment(BaseEnvironment):
         except (ProcessLookupError, PermissionError):
             try:
                 proc.kill()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "local._kill_process", e, exc_info=True)
                 pass
 
     def _update_cwd(self, result: dict):

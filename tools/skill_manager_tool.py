@@ -640,7 +640,8 @@ def skill_manage(
         try:
             from agent.prompt_builder import clear_skills_system_prompt_cache
             clear_skills_system_prompt_cache(clear_snapshot=True)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "skill_manager_tool.skill_manage", e, exc_info=True)
             pass
 
     return json.dumps(result, ensure_ascii=False)

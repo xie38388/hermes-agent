@@ -593,7 +593,8 @@ def camofox_vision(question: str, annotate: bool = False,
                     params={"userId": session["user_id"]},
                 )
                 annotation_context = f"\n\nAccessibility tree (element refs for interaction):\n{snap_data.get('snapshot', '')[:3000]}"
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "browser_camofox.camofox_vision", e, exc_info=True)
                 pass
 
         # Redact secrets from annotation context before sending to vision LLM.

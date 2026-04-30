@@ -187,7 +187,8 @@ class SessionDB:
                     except BaseException:
                         try:
                             self._conn.rollback()
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("Suppressed exception in %s: %s", "hermes_state._execute_write", e, exc_info=True)
                             pass
                         raise
                 # Success — periodic best-effort checkpoint.
@@ -244,7 +245,8 @@ class SessionDB:
             if self._conn:
                 try:
                     self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "hermes_state.close", e, exc_info=True)
                     pass
                 self._conn.close()
                 self._conn = None

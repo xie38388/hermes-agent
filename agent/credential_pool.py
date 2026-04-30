@@ -113,7 +113,7 @@ class PooledCredential:
     agent_key: Optional[str] = None
     agent_key_expires_at: Optional[str] = None
     request_count: int = 0
-    extra: Dict[str, Any] = None  # type: ignore[assignment]
+    extra: Dict[str, Any] = None  # type: ignore[assignment]  # populated post-init, None is sentinel
 
     def __post_init__(self):
         if self.extra is None:
@@ -1325,7 +1325,8 @@ def _seed_custom_pool(pool_key: str, entries: List[PooledCredential]) -> Tuple[b
                             "label": "model_config",
                         },
                     )
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "credential_pool._seed_custom_pool", e, exc_info=True)
         pass
 
     return changed, active_sources

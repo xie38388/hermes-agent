@@ -12,6 +12,8 @@ from pathlib import Path
 
 from hermes_constants import get_hermes_home
 from plugins.memory.honcho.client import resolve_active_host, resolve_config_path, HOST
+import logging
+logger = logging.getLogger(__name__)
 
 
 def clone_honcho_for_profile(profile_name: str) -> bool:
@@ -258,7 +260,8 @@ def _read_config() -> dict:
     if path.exists():
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "cli._read_config", e, exc_info=True)
             pass
     return {}
 

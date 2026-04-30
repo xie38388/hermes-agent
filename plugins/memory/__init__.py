@@ -56,7 +56,8 @@ def discover_memory_providers() -> List[Tuple[str, str, bool]]:
                 with open(yaml_file) as f:
                     meta = yaml.safe_load(f) or {}
                 desc = meta.get("description", "")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "__init__.discover_memory_providers", e, exc_info=True)
                 pass
 
         # Quick availability check — try loading and calling is_available()
@@ -132,7 +133,8 @@ def _load_provider_from_dir(provider_dir: Path) -> Optional["MemoryProvider"]:
                         sys.modules[parent] = parent_mod
                         try:
                             spec.loader.exec_module(parent_mod)
-                        except Exception:
+                        except Exception as e:
+                            logger.warning("Suppressed exception in %s: %s", "__init__._load_provider_from_dir", e, exc_info=True)
                             pass
 
         # Now load the provider module
@@ -190,7 +192,8 @@ def _load_provider_from_dir(provider_dir: Path) -> Optional["MemoryProvider"]:
                 and attr is not MemoryProvider):
             try:
                 return attr()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "__init__._load_provider_from_dir", e, exc_info=True)
                 pass
 
     return None
@@ -297,7 +300,8 @@ def discover_plugin_cli_commands() -> List[dict]:
                 if desc:
                     help_text = desc
                     description = desc
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "__init__.discover_plugin_cli_commands", e, exc_info=True)
                 pass
 
         handler_fn = getattr(cli_mod, f"{active_provider}_command", None) or \

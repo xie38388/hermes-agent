@@ -23,6 +23,8 @@ import sys
 import urllib.parse
 import urllib.request
 from typing import Any
+import logging
+logger = logging.getLogger(__name__)
 
 OVERPASS_URLS = [
     "https://overpass-api.de/api/interpreter",
@@ -81,7 +83,8 @@ def find_nearby(lat: float, lon: float, types: list[str], radius: int = 1500, li
         try:
             data = _http_post(url, f"data={urllib.parse.quote(query)}")
             break
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "find_nearby.find_nearby", e, exc_info=True)
             continue
 
     if not data:

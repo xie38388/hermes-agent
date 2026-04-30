@@ -719,7 +719,7 @@ def _validate_gateway_config(config: "GatewayConfig") -> None:
     try:
         from hermes_cli.auth import has_usable_secret
     except ImportError:
-        has_usable_secret = None  # type: ignore[assignment]
+        has_usable_secret = None  # type: ignore[assignment]  # optional dependency fallback
 
     if has_usable_secret is not None:
         for platform, pconfig in config.platforms.items():

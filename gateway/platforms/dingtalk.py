@@ -32,14 +32,14 @@ try:
     DINGTALK_STREAM_AVAILABLE = True
 except ImportError:
     DINGTALK_STREAM_AVAILABLE = False
-    dingtalk_stream = None  # type: ignore[assignment]
+    dingtalk_stream = None  # type: ignore[assignment]  # optional dependency fallback
 
 try:
     import httpx
     HTTPX_AVAILABLE = True
 except ImportError:
     HTTPX_AVAILABLE = False
-    httpx = None  # type: ignore[assignment]
+    httpx = None  # type: ignore[assignment]  # optional dependency fallback
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.helpers import MessageDeduplicator

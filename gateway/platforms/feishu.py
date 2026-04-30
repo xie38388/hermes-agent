@@ -44,13 +44,13 @@ try:
     import aiohttp
     from aiohttp import web
 except ImportError:
-    aiohttp = None  # type: ignore[assignment]
-    web = None  # type: ignore[assignment]
+    aiohttp = None  # type: ignore[assignment]  # optional dependency fallback
+    web = None  # type: ignore[assignment]  # optional dependency fallback
 
 try:
     import websockets
 except ImportError:
-    websockets = None  # type: ignore[assignment]
+    websockets = None  # type: ignore[assignment]  # optional dependency fallback
 
 try:
     import lark_oapi as lark
@@ -79,12 +79,12 @@ try:
     FEISHU_AVAILABLE = True
 except ImportError:
     FEISHU_AVAILABLE = False
-    lark = None  # type: ignore[assignment]
-    P2CardActionTriggerResponse = None  # type: ignore[assignment]
-    EventDispatcherHandler = None  # type: ignore[assignment]
-    FeishuWSClient = None  # type: ignore[assignment]
-    FEISHU_DOMAIN = None  # type: ignore[assignment]
-    LARK_DOMAIN = None  # type: ignore[assignment]
+    lark = None  # type: ignore[assignment]  # optional dependency fallback
+    P2CardActionTriggerResponse = None  # type: ignore[assignment]  # optional dependency fallback
+    EventDispatcherHandler = None  # type: ignore[assignment]  # optional dependency fallback
+    FeishuWSClient = None  # type: ignore[assignment]  # optional dependency fallback
+    FEISHU_DOMAIN = None  # type: ignore[assignment]  # optional dependency fallback
+    LARK_DOMAIN = None  # type: ignore[assignment]  # optional dependency fallback
 
 FEISHU_WEBSOCKET_AVAILABLE = websockets is not None
 FEISHU_WEBHOOK_AVAILABLE = aiohttp is not None
@@ -1003,7 +1003,8 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
     _apply_runtime_ws_overrides()
     try:
         ws_client.start()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "feishu._configure_with_overrides", e, exc_info=True)
         pass
     finally:
         ws_client_module.websockets.connect = original_connect
@@ -1016,11 +1017,13 @@ def _run_official_feishu_ws_client(ws_client: Any, adapter: Any) -> None:
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         try:
             loop.stop()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "feishu._configure_with_overrides", e, exc_info=True)
             pass
         try:
             loop.close()
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "feishu._configure_with_overrides", e, exc_info=True)
             pass
         adapter._ws_thread_loop = None
 
@@ -1321,7 +1324,8 @@ class FeishuAdapter(BasePlatformAdapter):
             return
         try:
             setattr(self._ws_client, "_auto_reconnect", False)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "feishu._disable_websocket_auto_reconnect", e, exc_info=True)
             pass
         finally:
             self._ws_client = None
@@ -2007,7 +2011,8 @@ class FeishuAdapter(BasePlatformAdapter):
         if action_value:
             try:
                 synthetic_text += f" {json.dumps(action_value, ensure_ascii=False)}"
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "feishu._handle_card_action_event", e, exc_info=True)
                 pass
 
         sender_id = SimpleNamespace(open_id=open_id, user_id=None, union_id=None)
@@ -2516,7 +2521,7 @@ class FeishuAdapter(BasePlatformAdapter):
         chunk_len = len(event.text or "")
         existing = self._pending_text_batches.get(key)
         if existing is None:
-            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
             self._pending_text_batches[key] = event
             self._pending_text_batch_counts[key] = 1
             self._schedule_text_batch_flush(key)
@@ -2541,7 +2546,7 @@ class FeishuAdapter(BasePlatformAdapter):
             return
 
         existing.text = next_text
-        existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+        existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
         existing.timestamp = event.timestamp
         if event.message_id:
             existing.message_id = event.message_id
@@ -3794,7 +3799,7 @@ def _poll_registration(
 try:
     import qrcode as _qrcode_mod
 except (ImportError, TypeError):
-    _qrcode_mod = None  # type: ignore[assignment]
+    _qrcode_mod = None  # type: ignore[assignment]  # optional dependency fallback
 
 
 def _render_qr(url: str) -> bool:

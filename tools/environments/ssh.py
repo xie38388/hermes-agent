@@ -101,7 +101,8 @@ class SSHEnvironment(BaseEnvironment):
             if home and result.returncode == 0:
                 logger.debug("SSH: remote home = %s", home)
                 return home
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "ssh._detect_remote_home", e, exc_info=True)
             pass
         if self.user == "root":
             return "/root"

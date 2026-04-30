@@ -8,6 +8,8 @@ import sys
 from typing import Callable, List, Optional, Set
 
 from hermes_cli.colors import Colors, color
+import logging
+logger = logging.getLogger(__name__)
 
 
 def flush_stdin() -> None:
@@ -28,7 +30,8 @@ def flush_stdin() -> None:
             return
         import termios
         termios.tcflush(sys.stdin, termios.TCIFLUSH)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "curses_ui.flush_stdin", e, exc_info=True)
         pass
 
 

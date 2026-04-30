@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 try:
     from . import holographic as hrr
 except ImportError:
-    import holographic as hrr  # type: ignore[no-redef]
+    import holographic as hrr  # type: ignore[no-redef]  # conditional redefinition for optional dependency
 
 
 class FactRetriever:

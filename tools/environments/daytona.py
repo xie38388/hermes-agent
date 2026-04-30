@@ -125,7 +125,8 @@ class DaytonaEnvironment(BaseEnvironment):
                 self._remote_home = home
                 if requested_cwd in ("~", "/home/daytona"):
                     self.cwd = home
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "daytona.__init__", e, exc_info=True)
             pass
         logger.info("Daytona: resolved home to %s, cwd to %s", self._remote_home, self.cwd)
 
@@ -198,7 +199,8 @@ class DaytonaEnvironment(BaseEnvironment):
             with lock:
                 try:
                     sandbox.stop()
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "daytona.cancel", e, exc_info=True)
                     pass
 
         if login:

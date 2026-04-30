@@ -706,7 +706,8 @@ class WebResearchEnv(HermesAgentBaseEnv):
                 domain = parsed.netloc.lower().lstrip("www.")
                 if domain:
                     domains.add(domain)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "web_research_env._extract_domains", e, exc_info=True)
                 pass
         return domains
 

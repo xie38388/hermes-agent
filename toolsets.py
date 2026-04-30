@@ -5,6 +5,8 @@ Toolsets Module
 This module provides a flexible system for defining and managing tool aliases/toolsets.
 Toolsets allow you to group tools together for specific scenarios and can be composed
 from individual tools or other toolsets.
+import logging
+logger = logging.getLogger(__name__)
 
 Features:
 - Define custom toolsets with specific tools
@@ -61,8 +63,8 @@ _HERMES_CORE_TOOLS = [
     # Home Assistant smart home control (gated on HASS_TOKEN via check_fn)
     "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
     # Parallel subtask execution
-            "parallel_subtasks",
-            # Presenton PPT generation
+    "parallel_subtasks",
+    # Presenton PPT generation
     "generate_presentation",
 ]
 
@@ -276,6 +278,11 @@ TOOLSETS = {
             "ha_list_entities", "ha_get_state", "ha_list_services", "ha_call_service",
             # Parallel subtask execution
             "parallel_subtasks",
+            # WebDev project lifecycle tools
+            "webdev_init_project", "webdev_save_checkpoint",
+            "webdev_check_status", "webdev_restart_server",
+            "webdev_add_feature", "webdev_request_secrets",
+            "webdev_rollback_checkpoint", "webdev_debug",
             # Presenton PPT generation
             "generate_presentation",
 
@@ -460,7 +467,8 @@ def resolve_toolset(name: str, visited: Set[str] = None) -> List[str]:
             try:
                 from tools.registry import registry
                 return [e.name for e in registry._tools.values() if e.toolset == name]
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "toolsets.resolve_toolset", e, exc_info=True)
                 pass
         return []
 
@@ -533,7 +541,8 @@ def get_all_toolsets() -> Dict[str, Dict[str, Any]]:
                     "description": f"Plugin toolset: {ts_name}",
                     "tools": tools,
                 }
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "toolsets.get_all_toolsets", e, exc_info=True)
                 pass
     return result
 

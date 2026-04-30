@@ -154,7 +154,8 @@ def _load_config() -> dict:
     if profile_path.exists():
         try:
             return json.loads(profile_path.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "__init__._load_config", e, exc_info=True)
             pass
 
     # Legacy shared path (backward compat)
@@ -162,7 +163,8 @@ def _load_config() -> dict:
     if legacy_path.exists():
         try:
             return json.loads(legacy_path.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "__init__._load_config", e, exc_info=True)
             pass
 
     return {
@@ -253,7 +255,8 @@ class HindsightMemoryProvider(MemoryProvider):
         if config_path.exists():
             try:
                 existing = json.loads(config_path.read_text())
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "__init__.save_config", e, exc_info=True)
                 pass
         existing.update(values)
         config_path.write_text(json.dumps(existing, indent=2))
@@ -542,7 +545,8 @@ class HindsightMemoryProvider(MemoryProvider):
         try:
             from importlib.metadata import version as pkg_version
             _client_version = pkg_version("hindsight-client")
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "__init__.initialize", e, exc_info=True)
             pass
         logger.info("Hindsight initialized: mode=%s, api_url=%s, bank=%s, budget=%s, memory_mode=%s, prefetch_method=%s, client=%s",
                      self._mode, self._api_url, self._bank_id, self._budget, self._memory_mode, self._prefetch_method, _client_version)
@@ -866,7 +870,8 @@ class HindsightMemoryProvider(MemoryProvider):
                         pass
                 else:
                     _run_sync(self._client.aclose())
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "__init__.shutdown", e, exc_info=True)
                 pass
             self._client = None
         # Stop the background event loop so no tasks are pending at exit

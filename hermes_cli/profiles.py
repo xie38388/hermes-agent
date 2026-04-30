@@ -29,6 +29,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import List, Optional
+import logging
+logger = logging.getLogger(__name__)
 
 _PROFILE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -209,7 +211,8 @@ def check_alias_collision(name: str) -> Optional[str]:
                     content = (wrapper_dir / name).read_text()
                     if "hermes -p" in content:
                         return None  # it's our wrapper, safe to overwrite
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "profiles.check_alias_collision", e, exc_info=True)
                     pass
             return f"'{name}' conflicts with an existing command ({existing_path})"
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -256,7 +259,8 @@ def remove_wrapper_script(name: str) -> bool:
             if "hermes -p" in content:
                 wrapper_path.unlink()
                 return True
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "profiles.remove_wrapper_script", e, exc_info=True)
             pass
     return False
 
@@ -590,7 +594,8 @@ def delete_profile(name: str, yes: bool = False) -> Path:
         if active == name:
             set_active_profile("default")
             print("✓ Active profile reset to default")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "profiles.delete_profile", e, exc_info=True)
         pass
 
     print(f"\nProfile '{name}' deleted.")
@@ -981,7 +986,8 @@ def rename_profile(old_name: str, new_name: str) -> Path:
         if get_active_profile() == old_name:
             set_active_profile(new_name)
             print(f"✓ Active profile updated: {new_name}")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "profiles.rename_profile", e, exc_info=True)
         pass
 
     return new_dir

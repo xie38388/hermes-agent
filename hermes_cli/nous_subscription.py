@@ -17,6 +17,8 @@ from tools.tool_backend_helpers import (
     resolve_modal_backend_state,
     resolve_openai_audio_api_key,
 )
+import logging
+logger = logging.getLogger(__name__)
 
 
 _DEFAULT_PLATFORM_TOOLSETS = {
@@ -108,7 +110,8 @@ def _toolset_enabled(config: Dict[str, object], toolset_key: str) -> bool:
                 continue
             try:
                 available_tools.update(resolve_toolset(toolset_name))
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "nous_subscription._toolset_enabled", e, exc_info=True)
                 continue
 
         if target_tools and target_tools.issubset(available_tools):

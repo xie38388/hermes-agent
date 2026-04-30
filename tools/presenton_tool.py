@@ -32,7 +32,8 @@ def _get_api_key() -> str | None:
         auth = headers.get("Authorization", "")
         if auth.startswith("Bearer "):
             return auth[7:]
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "presenton_tool._get_api_key", e, exc_info=True)
         pass
     return None
 

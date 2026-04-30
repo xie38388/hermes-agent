@@ -226,7 +226,8 @@ def _handle_send(args):
                 source_label = get_session_env("HERMES_SESSION_PLATFORM", "cli")
                 if mirror_to_session(platform_name, chat_id, mirror_text, source_label=source_label, thread_id=thread_id):
                     result["mirrored"] = True
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "send_message_tool._handle_send", e, exc_info=True)
                 pass
 
         if isinstance(result, dict) and "error" in result:

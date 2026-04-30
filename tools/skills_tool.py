@@ -434,7 +434,8 @@ def _get_category_from_path(skill_path: Path) -> Optional[str]:
     try:
         from agent.skill_utils import get_external_skills_dirs
         dirs_to_check.extend(get_external_skills_dirs())
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "skills_tool._get_category_from_path", e, exc_info=True)
         pass
     for skills_dir in dirs_to_check:
         try:
@@ -650,7 +651,8 @@ def skills_categories(verbose: bool = False, task_id: str = None) -> str:
         try:
             from agent.skill_utils import get_external_skills_dirs
             all_dirs.extend(d for d in get_external_skills_dirs() if d.exists())
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "skills_tool.skills_categories", e, exc_info=True)
             pass
         if not all_dirs:
             return json.dumps(
@@ -872,7 +874,8 @@ def skill_view(name: str, file_path: str = None, task_id: str = None) -> str:
         _trusted_dirs = [SKILLS_DIR.resolve()]
         try:
             _trusted_dirs.extend(d.resolve() for d in all_dirs[1:])
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "skills_tool.skill_view", e, exc_info=True)
             pass
         for _td in _trusted_dirs:
             try:

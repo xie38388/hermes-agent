@@ -23,6 +23,8 @@ import urllib.request
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+import logging
+logger = logging.getLogger(__name__)
 
 
 # ─── Subdomain Discovery (crt.sh) ──────────────────────────────────────────
@@ -278,7 +280,8 @@ def check_available(domain):
         with socket.create_connection((domain, 443), timeout=3) as s:
             with ctx.wrap_socket(s, server_hostname=domain):
                 ssl_up = True
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "domain_intel.check_available", e, exc_info=True)
         pass
     signals["ssl_reachable"] = ssl_up
 

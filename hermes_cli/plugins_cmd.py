@@ -576,7 +576,8 @@ def cmd_list() -> None:
                 name = manifest.get("name", d.name)
                 version = manifest.get("version", "")
                 description = manifest.get("description", "")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "plugins_cmd.cmd_list", e, exc_info=True)
                 pass
 
         # Check if it's a git repo (installed via hermes plugins install)
@@ -769,7 +770,8 @@ def cmd_toggle() -> None:
                     manifest = yaml.safe_load(f) or {}
                 name = manifest.get("name", d.name)
                 description = manifest.get("description", "")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "plugins_cmd.cmd_toggle", e, exc_info=True)
                 pass
 
         plugin_names.append(name)

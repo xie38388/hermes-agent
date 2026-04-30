@@ -75,6 +75,7 @@ from tools.browser_tool import cleanup_browser
 from hermes_constants import OPENROUTER_BASE_URL
 
 # Agent internals extracted to agent/ package for modularity
+from agent.shared_utils import (_SafeWriter, _install_safe_stdio, _sanitize_surrogates, _sanitize_messages_surrogates, _sanitize_messages_non_ascii, _strip_non_ascii, _is_destructive_command, _should_parallelize_tool_batch, _extract_parallel_scope_path, _paths_overlap, _qwen_portal_headers, _QWEN_CODE_VERSION, _SURROGATE_RE, _DESTRUCTIVE_PATTERNS, _REDIRECT_OVERWRITE, _NEVER_PARALLEL_TOOLS, _PARALLEL_SAFE_TOOLS, _PATH_SCOPED_TOOLS)  # noqa: F811
 from agent.memory_manager import build_memory_context_block
 from agent.retry_utils import jittered_backoff
 from agent.error_classifier import classify_api_error, FailoverReason

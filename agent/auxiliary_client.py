@@ -817,7 +817,8 @@ def _try_nous(vision: bool = False) -> Tuple[Optional[OpenAI], Optional[str]]:
             model = _NOUS_FREE_TIER_VISION_MODEL if vision else _NOUS_FREE_TIER_AUX_MODEL
             logger.debug("Free-tier Nous account — using %s for auxiliary/%s",
                          model, "vision" if vision else "text")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "auxiliary_client._try_nous", e, exc_info=True)
         pass
     return (
         OpenAI(
@@ -844,7 +845,8 @@ def _read_main_model() -> str:
             default = model_cfg.get("default", "")
             if isinstance(default, str) and default.strip():
                 return default.strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "auxiliary_client._read_main_model", e, exc_info=True)
         pass
     return ""
 
@@ -863,7 +865,8 @@ def _read_main_provider() -> str:
             provider = model_cfg.get("provider", "")
             if isinstance(provider, str) and provider.strip():
                 return provider.strip().lower()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "auxiliary_client._read_main_provider", e, exc_info=True)
         pass
     return ""
 
@@ -994,7 +997,8 @@ def _try_anthropic() -> Tuple[Optional[Any], Optional[str]]:
                 cfg_base_url = (model_cfg.get("base_url") or "").strip().rstrip("/")
                 if cfg_base_url:
                     base_url = cfg_base_url
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "auxiliary_client._try_anthropic", e, exc_info=True)
         pass
 
     from agent.anthropic_adapter import _is_oauth_token
@@ -1840,7 +1844,7 @@ def neuter_async_httpx_del() -> None:
     """
     try:
         from openai._base_client import AsyncHttpxClientWrapper
-        AsyncHttpxClientWrapper.__del__ = lambda self: None  # type: ignore[assignment]
+        AsyncHttpxClientWrapper.__del__ = lambda self: None  # type: ignore[assignment]  # suppress destructor to prevent event-loop warnings
     except (ImportError, AttributeError):
         pass  # Graceful degradation if the SDK changes its internals
 
@@ -1861,7 +1865,8 @@ def _force_close_async_httpx(client: Any) -> None:
         inner = getattr(client, "_client", None)
         if inner is not None and not getattr(inner, "is_closed", True):
             inner._state = ClientState.CLOSED
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "auxiliary_client._force_close_async_httpx", e, exc_info=True)
         pass
 
 
@@ -1887,7 +1892,8 @@ def shutdown_cached_clients() -> None:
                 close_fn = getattr(client, "close", None)
                 if close_fn and not inspect.iscoroutinefunction(close_fn):
                     close_fn()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "auxiliary_client.shutdown_cached_clients", e, exc_info=True)
                 pass
         _client_cache.clear()
 

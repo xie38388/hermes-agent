@@ -154,7 +154,8 @@ def _find_powershell() -> str | None:
                 return name
         except FileNotFoundError:
             continue
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "clipboard._find_powershell", e, exc_info=True)
             continue
     return None
 
@@ -290,7 +291,8 @@ def _wayland_has_image() -> bool:
         )
     except FileNotFoundError:
         logger.debug("wl-paste not installed — Wayland clipboard unavailable")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "clipboard._wayland_has_image", e, exc_info=True)
         pass
     return False
 
@@ -396,7 +398,8 @@ def _xclip_has_image() -> bool:
         return r.returncode == 0 and "image/png" in r.stdout
     except FileNotFoundError:
         pass
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "clipboard._xclip_has_image", e, exc_info=True)
         pass
     return False
 

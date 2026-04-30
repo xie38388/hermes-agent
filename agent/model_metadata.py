@@ -310,7 +310,8 @@ def detect_local_server_type(base_url: str) -> Optional[str]:
                 r = client.get(f"{server_url}/api/v1/models")
                 if r.status_code == 200:
                     return "lm-studio"
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "model_metadata.detect_local_server_type", e, exc_info=True)
                 pass
             # Ollama exposes /api/tags and responds with {"models": [...]}
             # LM Studio returns {"error": "Unexpected endpoint"} with status 200
@@ -322,9 +323,11 @@ def detect_local_server_type(base_url: str) -> Optional[str]:
                         data = r.json()
                         if "models" in data:
                             return "ollama"
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("Suppressed exception in %s: %s", "model_metadata.detect_local_server_type", e, exc_info=True)
                         pass
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "model_metadata.detect_local_server_type", e, exc_info=True)
                 pass
             # llama.cpp exposes /v1/props (older builds used /props without the /v1 prefix)
             try:
@@ -333,7 +336,8 @@ def detect_local_server_type(base_url: str) -> Optional[str]:
                     r = client.get(f"{server_url}/props")  # fallback for older builds
                 if r.status_code == 200 and "default_generation_settings" in r.text:
                     return "llamacpp"
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "model_metadata.detect_local_server_type", e, exc_info=True)
                 pass
             # vLLM: /version
             try:
@@ -342,9 +346,11 @@ def detect_local_server_type(base_url: str) -> Optional[str]:
                     data = r.json()
                     if "version" in data:
                         return "vllm"
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "model_metadata.detect_local_server_type", e, exc_info=True)
                 pass
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "model_metadata.detect_local_server_type", e, exc_info=True)
         pass
 
     return None
@@ -535,7 +541,8 @@ def fetch_endpoint_model_metadata(
                         model_alias = props.get("model_alias", "")
                         if n_ctx and model_alias and model_alias in cache:
                             cache[model_alias]["context_length"] = n_ctx
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "model_metadata.fetch_endpoint_model_metadata", e, exc_info=True)
                     pass
 
             _endpoint_model_metadata_cache[normalized] = cache
@@ -745,7 +752,8 @@ def query_ollama_num_ctx(model: str, base_url: str) -> Optional[int]:
             for key, value in model_info.items():
                 if "context_length" in key and isinstance(value, (int, float)):
                     return int(value)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "model_metadata.query_ollama_num_ctx", e, exc_info=True)
         pass
     return None
 
@@ -834,7 +842,8 @@ def _query_local_context_length(model: str, base_url: str) -> Optional[int]:
                         ctx = m.get("max_model_len") or m.get("context_length") or m.get("max_tokens")
                         if ctx and isinstance(ctx, (int, float)):
                             return int(ctx)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "model_metadata._query_local_context_length", e, exc_info=True)
         pass
 
     return None

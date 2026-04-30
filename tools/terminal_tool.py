@@ -750,7 +750,8 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
                 import inspect, modal
                 if "ephemeral_disk" in inspect.signature(modal.Sandbox.create).parameters:
                     sandbox_kwargs["ephemeral_disk"] = disk
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "terminal_tool._create_environment", e, exc_info=True)
                 pass
 
         modal_state = _get_modal_backend_state(cc.get("modal_mode"))

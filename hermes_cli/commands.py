@@ -15,6 +15,8 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
+import logging
+logger = logging.getLogger(__name__)
 
 # prompt_toolkit is an optional CLI dependency — only needed for
 # SlashCommandCompleter and SlashCommandAutoSuggest.  Gateway and test
@@ -24,10 +26,10 @@ try:
     from prompt_toolkit.auto_suggest import AutoSuggest, Suggestion
     from prompt_toolkit.completion import Completer, Completion
 except ImportError:  # pragma: no cover
-    AutoSuggest = object  # type: ignore[assignment,misc]
-    Completer = object    # type: ignore[assignment,misc]
-    Suggestion = None     # type: ignore[assignment]
-    Completion = None     # type: ignore[assignment]
+    AutoSuggest = object  # type: ignore[assignment,misc]  # optional dependency fallback
+    Completer = object    # type: ignore[assignment,misc]  # optional dependency fallback
+    Suggestion = None     # type: ignore[assignment]  # optional dependency fallback
+    Completion = None     # type: ignore[assignment]  # optional dependency fallback
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +496,8 @@ def _collect_gateway_skill_entries(
             if len(desc) > desc_limit:
                 desc = desc[:desc_limit - 3] + "..."
             plugin_pairs.append((name, desc))
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "commands._collect_gateway_skill_entries", e, exc_info=True)
         pass
 
     plugin_pairs = _clamp_command_names(plugin_pairs, reserved_names)
@@ -508,7 +511,8 @@ def _collect_gateway_skill_entries(
     try:
         from agent.skill_utils import get_disabled_skill_names
         _platform_disabled = get_disabled_skill_names(platform=platform)
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "commands._collect_gateway_skill_entries", e, exc_info=True)
         pass
 
     skill_triples: list[tuple[str, str, str]] = []
@@ -536,7 +540,8 @@ def _collect_gateway_skill_entries(
             if len(desc) > desc_limit:
                 desc = desc[:desc_limit - 3] + "..."
             skill_triples.append((name, desc, cmd_key))
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "commands._collect_gateway_skill_entries", e, exc_info=True)
         pass
 
     # Clamp names; _clamp_command_names works on (name, desc) pairs so we
@@ -908,7 +913,8 @@ class SlashCommandCompleter(Completer):
                         display=name,
                         display_meta=f"{identity.vendor}/{identity.family}",
                     )
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "commands._model_completions", e, exc_info=True)
             pass
 
     def get_completions(self, document, complete_event):

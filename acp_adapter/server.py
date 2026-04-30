@@ -47,7 +47,7 @@ from acp.schema import (
 try:
     from acp.schema import AuthMethodAgent
 except ImportError:
-    from acp.schema import AuthMethod as AuthMethodAgent  # type: ignore[attr-defined]
+    from acp.schema import AuthMethod as AuthMethodAgent  # type: ignore[attr-defined]  # see inline context
 
 from acp_adapter.auth import detect_provider, has_provider
 from acp_adapter.events import (

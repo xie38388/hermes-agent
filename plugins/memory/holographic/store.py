@@ -11,7 +11,7 @@ from pathlib import Path
 try:
     from . import holographic as hrr
 except ImportError:
-    import holographic as hrr  # type: ignore[no-redef]
+    import holographic as hrr  # type: ignore[no-redef]  # conditional redefinition for optional dependency
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS facts (
@@ -165,7 +165,7 @@ class MemoryStore:
                     (content, category, tags, self.default_trust),
                 )
                 self._conn.commit()
-                fact_id: int = cur.lastrowid  # type: ignore[assignment]
+                fact_id: int = cur.lastrowid  # type: ignore[assignment]  # optional dependency fallback
             except sqlite3.IntegrityError:
                 # Duplicate content — return existing id
                 row = self._conn.execute(
@@ -454,7 +454,7 @@ class MemoryStore:
             "INSERT INTO entities (name) VALUES (?)", (name,)
         )
         self._conn.commit()
-        return int(cur.lastrowid)  # type: ignore[return-value]
+        return int(cur.lastrowid)  # type: ignore[return-value]  # lastrowid is int when INSERT succeeds
 
     def _link_fact_entity(self, fact_id: int, entity_id: int) -> None:
         """Insert into fact_entities, silently ignore if the link already exists."""

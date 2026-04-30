@@ -54,36 +54,36 @@ except ImportError:
     # check_matrix_requirements() will return False and the adapter
     # won't be instantiated in production, but tests may exercise
     # adapter methods so stubs must have the right attributes.
-    ContentURI = EventID = RoomID = SyncToken = UserID = str  # type: ignore[misc,assignment]
+    ContentURI = EventID = RoomID = SyncToken = UserID = str  # type: ignore[misc,assignment]  # simplified type alias for optional SDK types
 
-    class _EventTypeStub:  # type: ignore[no-redef]
+    class _EventTypeStub:  # type: ignore[no-redef]  # fallback stub when optional SDK unavailable
         ROOM_MESSAGE = "m.room.message"
         REACTION = "m.reaction"
         ROOM_ENCRYPTED = "m.room.encrypted"
         ROOM_NAME = "m.room.name"
-    EventType = _EventTypeStub  # type: ignore[misc,assignment]
+    EventType = _EventTypeStub  # type: ignore[misc,assignment]  # see inline context
 
-    class _PaginationDirectionStub:  # type: ignore[no-redef]
+    class _PaginationDirectionStub:  # type: ignore[no-redef]  # fallback stub when optional SDK unavailable
         BACKWARD = "b"
         FORWARD = "f"
-    PaginationDirection = _PaginationDirectionStub  # type: ignore[misc,assignment]
+    PaginationDirection = _PaginationDirectionStub  # type: ignore[misc,assignment]  # see inline context
 
-    class _PresenceStateStub:  # type: ignore[no-redef]
+    class _PresenceStateStub:  # type: ignore[no-redef]  # fallback stub when optional SDK unavailable
         ONLINE = "online"
         OFFLINE = "offline"
         UNAVAILABLE = "unavailable"
-    PresenceState = _PresenceStateStub  # type: ignore[misc,assignment]
+    PresenceState = _PresenceStateStub  # type: ignore[misc,assignment]  # see inline context
 
-    class _RoomCreatePresetStub:  # type: ignore[no-redef]
+    class _RoomCreatePresetStub:  # type: ignore[no-redef]  # fallback stub when optional SDK unavailable
         PRIVATE = "private_chat"
         PUBLIC = "public_chat"
         TRUSTED_PRIVATE = "trusted_private_chat"
-    RoomCreatePreset = _RoomCreatePresetStub  # type: ignore[misc,assignment]
+    RoomCreatePreset = _RoomCreatePresetStub  # type: ignore[misc,assignment]  # see inline context
 
-    class _TrustStateStub:  # type: ignore[no-redef]
+    class _TrustStateStub:  # type: ignore[no-redef]  # fallback stub when optional SDK unavailable
         UNVERIFIED = 0
         VERIFIED = 1
-    TrustState = _TrustStateStub  # type: ignore[misc,assignment]
+    TrustState = _TrustStateStub  # type: ignore[misc,assignment]  # see inline context
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (
@@ -350,7 +350,8 @@ class MatrixAdapter(BasePlatformAdapter):
                     f"/_matrix/client/v3/devices/{client.device_id}",
                 )
                 logger.info("Matrix: deleted stale device %s from server", client.device_id)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "matrix._verify_device_keys_on_server", e, exc_info=True)
                 # Device deletion often requires UIA or may simply not be
                 # permitted — that's fine, share_keys will try to overwrite.
                 pass
@@ -613,7 +614,8 @@ class MatrixAdapter(BasePlatformAdapter):
         if self._client:
             try:
                 await self._client.api.session.close()
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "matrix.disconnect", e, exc_info=True)
                 pass
             self._client = None
 
@@ -711,7 +713,8 @@ class MatrixAdapter(BasePlatformAdapter):
                 )
                 if name_evt and hasattr(name_evt, "name") and name_evt.name:
                     name = name_evt.name
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "matrix.get_chat_info", e, exc_info=True)
                 pass
 
         return {"name": name, "type": chat_type}
@@ -727,7 +730,8 @@ class MatrixAdapter(BasePlatformAdapter):
         if self._client:
             try:
                 await self._client.set_typing(RoomID(chat_id), timeout=30000)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "matrix.send_typing", e, exc_info=True)
                 pass
 
     async def edit_message(
@@ -1523,12 +1527,12 @@ class MatrixAdapter(BasePlatformAdapter):
         existing = self._pending_text_batches.get(key)
         chunk_len = len(event.text or "")
         if existing is None:
-            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            event._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
             self._pending_text_batches[key] = event
         else:
             if event.text:
                 existing.text = f"{existing.text}\n{event.text}" if existing.text else event.text
-            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+            existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]  # runtime-attached attr for streaming chunk tracking
             if event.media_urls:
                 existing.media_urls.extend(event.media_urls)
                 existing.media_types.extend(event.media_types)
@@ -1788,7 +1792,8 @@ class MatrixAdapter(BasePlatformAdapter):
                 members = await state_store.get_members(room_id)
                 if members and len(members) == 2:
                     return True
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "matrix._is_dm_room", e, exc_info=True)
                 pass
         return False
 
@@ -1874,7 +1879,8 @@ class MatrixAdapter(BasePlatformAdapter):
                 member = await state_store.get_member(room_id, user_id)
                 if member and getattr(member, "displayname", None):
                     return member.displayname
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "matrix._get_display_name", e, exc_info=True)
                 pass
         # Strip the @...:server format to just the localpart.
         if user_id.startswith("@") and ":" in user_id:

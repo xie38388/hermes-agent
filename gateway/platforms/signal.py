@@ -351,7 +351,8 @@ class SignalAdapter(BasePlatformAdapter):
                 task = asyncio.create_task(self._sse_response.aclose())
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "signal._force_reconnect", e, exc_info=True)
                 pass
             self._sse_response = None
 

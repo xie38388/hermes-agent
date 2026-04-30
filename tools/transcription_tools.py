@@ -118,7 +118,8 @@ def get_stt_model_from_config() -> Optional[str]:
             legacy = stt_cfg.get("model")
             if legacy:
                 return legacy
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "transcription_tools.get_stt_model_from_config", e, exc_info=True)
         pass
     return None
 

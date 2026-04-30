@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 
 from hermes_constants import get_hermes_home
+import logging
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +159,8 @@ def _get_available_providers() -> list:
             provider = load_memory_provider(name)
             if not provider:
                 continue
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "memory_setup._get_available_providers", e, exc_info=True)
             continue
 
         schema = provider.get_config_schema() if hasattr(provider, "get_config_schema") else []

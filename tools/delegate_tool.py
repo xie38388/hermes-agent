@@ -156,7 +156,8 @@ def _resolve_workspace_hint(parent_agent) -> Optional[str]:
             continue
         try:
             text = os.path.abspath(os.path.expanduser(str(candidate)))
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "delegate_tool._resolve_workspace_hint", e, exc_info=True)
             continue
         if os.path.isabs(text) and os.path.isdir(text):
             return text
@@ -475,11 +476,13 @@ def _run_single_child(
                     if child_desc:
                         desc = (f"delegate_task: subagent {child_desc} "
                                 f"(iteration {child_iter}/{child_max})")
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "delegate_tool._heartbeat_loop", e, exc_info=True)
                 pass
             try:
                 touch(desc)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "delegate_tool._heartbeat_loop", e, exc_info=True)
                 pass
 
     _heartbeat_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
@@ -821,7 +824,8 @@ def delegate_task(
                     result=entry.get("summary", "") or "",
                     child_session_id=getattr(children[entry["task_index"]][2], "session_id", "") if entry["task_index"] < len(children) else "",
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "delegate_tool.delegate_task", e, exc_info=True)
                 pass
 
     total_duration = round(time.monotonic() - overall_start, 2)
@@ -966,7 +970,8 @@ def _load_config() -> dict:
         cfg = CLI_CONFIG.get("delegation", {})
         if cfg:
             return cfg
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "delegate_tool._load_config", e, exc_info=True)
         pass
     try:
         from hermes_cli.config import load_config

@@ -46,7 +46,8 @@ def _get_max_read_chars() -> int:
         if isinstance(val, (int, float)) and val > 0:
             _max_read_chars_cached = int(val)
             return _max_read_chars_cached
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "file_tools._get_max_read_chars", e, exc_info=True)
         pass
     _max_read_chars_cached = _DEFAULT_MAX_READ_CHARS
     return _max_read_chars_cached

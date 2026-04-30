@@ -2362,7 +2362,8 @@ def _get_section_config_summary(config: dict, section_key: str) -> Optional[str]
                 from hermes_cli.auth import get_active_provider
                 if get_active_provider():
                     has_key = True
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "setup._get_section_config_summary", e, exc_info=True)
                 pass
         if not has_key:
             return None
@@ -2950,7 +2951,8 @@ def _resolve_hermes_chat_argv() -> Optional[list[str]]:
     try:
         if importlib.util.find_spec("hermes_cli") is not None:
             return [sys.executable, "-m", "hermes_cli.main", "chat"]
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "setup._resolve_hermes_chat_argv", e, exc_info=True)
         pass
 
     return None

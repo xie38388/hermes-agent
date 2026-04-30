@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 try:
     import anthropic as _anthropic_sdk
 except ImportError:
-    _anthropic_sdk = None  # type: ignore[assignment]
+    _anthropic_sdk = None  # type: ignore[assignment]  # optional dependency fallback
 
 logger = logging.getLogger(__name__)
 
@@ -145,7 +145,8 @@ def _detect_claude_code_version() -> str:
                 version = result.stdout.strip().split()[0]
                 if version and version[0].isdigit():
                     return version
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "anthropic_adapter._detect_claude_code_version", e, exc_info=True)
             pass
     return _CLAUDE_CODE_VERSION_FALLBACK
 
@@ -665,7 +666,8 @@ def run_hermes_oauth_login_pure() -> Optional[Dict[str, Any]]:
     try:
         webbrowser.open(auth_url)
         print("  (Browser opened automatically)")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "anthropic_adapter.run_hermes_oauth_login_pure", e, exc_info=True)
         pass
 
     print()

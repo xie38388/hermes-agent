@@ -15,6 +15,8 @@ from pathlib import Path
 
 from hermes_cli.config import get_hermes_home, get_env_path, get_project_root, load_config
 from hermes_constants import display_hermes_home
+import logging
+logger = logging.getLogger(__name__)
 
 
 def _get_git_commit(project_root: Path) -> str:
@@ -27,7 +29,8 @@ def _get_git_commit(project_root: Path) -> str:
         )
         if result.returncode == 0:
             return result.stdout.strip()
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "dump._get_git_commit", e, exc_info=True)
         pass
     return "(unknown)"
 

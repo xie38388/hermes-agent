@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from hermes_constants import get_config_path, get_hermes_home
+logger = logging.getLogger(__name__)
 
 # Sentinel to track whether setup_logging() has already run.  The function
 # is idempotent — calling it twice is safe but the second call is a no-op
@@ -112,10 +113,10 @@ def _install_session_record_factory() -> None:
     def _session_record_factory(*args, **kwargs):
         record = current_factory(*args, **kwargs)
         sid = getattr(_session_context, "session_id", None)
-        record.session_tag = f" [{sid}]" if sid else ""  # type: ignore[attr-defined]
+        record.session_tag = f" [{sid}]" if sid else ""  # type: ignore[attr-defined]  # see inline context
         return record
 
-    _session_record_factory._hermes_session_injector = True  # type: ignore[attr-defined]
+    _session_record_factory._hermes_session_injector = True  # type: ignore[attr-defined]  # see inline context
     logging.setLogRecordFactory(_session_record_factory)
 
 
@@ -283,7 +284,7 @@ def setup_verbose_logging() -> None:
     handler = logging.StreamHandler()
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(RedactingFormatter(_LOG_FORMAT_VERBOSE, datefmt="%H:%M:%S"))
-    handler._hermes_verbose = True  # type: ignore[attr-defined]
+    handler._hermes_verbose = True  # type: ignore[attr-defined]  # see inline context
     root.addHandler(handler)
 
     # Lower root logger level so DEBUG records reach all handlers.
@@ -389,6 +390,7 @@ def _read_logging_config():
                     log_cfg.get("max_size_mb"),
                     log_cfg.get("backup_count"),
                 )
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "hermes_logging._read_logging_config", e, exc_info=True)
         pass
     return (None, None, None)

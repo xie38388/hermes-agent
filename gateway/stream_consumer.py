@@ -278,7 +278,8 @@ class GatewayStreamConsumer:
             if self._accumulated and self._message_id:
                 try:
                     await self._send_or_edit(self._accumulated)
-                except Exception:
+                except Exception as e:
+                    logger.warning("Suppressed exception in %s: %s", "stream_consumer.run", e, exc_info=True)
                     pass
         except Exception as e:
             logger.error("Stream consumer error: %s", e)

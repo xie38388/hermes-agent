@@ -118,7 +118,7 @@ class TestPluginDiscovery:
         monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes_test"))
 
         fake_module = types.ModuleType("fake_ep_plugin")
-        fake_module.register = lambda ctx: None  # type: ignore[attr-defined]
+        fake_module.register = lambda ctx: None  # type: ignore[attr-defined]  # see inline context
 
         fake_ep = MagicMock()
         fake_ep.name = "ep_plugin"

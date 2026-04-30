@@ -148,7 +148,8 @@ def check_for_updates() -> Optional[int]:
             cached = json.loads(cache_file.read_text())
             if now - cached.get("ts", 0) < _UPDATE_CHECK_CACHE_SECONDS:
                 return cached.get("behind")
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "banner.check_for_updates", e, exc_info=True)
         pass
 
     # Fetch latest refs (fast — only downloads ref metadata, no files)
@@ -178,7 +179,8 @@ def check_for_updates() -> Optional[int]:
     # Write cache
     try:
         cache_file.write_text(json.dumps({"ts": now, "behind": behind}))
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "banner.check_for_updates", e, exc_info=True)
         pass
 
     return behind

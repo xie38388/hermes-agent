@@ -378,7 +378,7 @@ class TestResolveActiveHost:
             os.environ.pop("HERMES_HONCHO_HOST", None)
             # Temporarily remove hermes_cli.profiles to simulate import failure
             saved = sys.modules.get("hermes_cli.profiles")
-            sys.modules["hermes_cli.profiles"] = None  # type: ignore
+            sys.modules["hermes_cli.profiles"] = None  # type: ignore  # complex type not expressible in current type system
             try:
                 assert resolve_active_host() == "hermes"
             finally:

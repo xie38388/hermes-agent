@@ -22,6 +22,8 @@ from rich.table import Table
 # Lazy imports to avoid circular dependencies and slow startup.
 # tools.skills_hub and tools.skills_guard are imported inside functions.
 from hermes_constants import display_hermes_home
+import logging
+logger = logging.getLogger(__name__)
 
 _console = Console()
 
@@ -458,7 +460,8 @@ def do_install(identifier: str, category: str = "", force: bool = False,
         try:
             from agent.prompt_builder import clear_skills_system_prompt_cache
             clear_skills_system_prompt_cache(clear_snapshot=True)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "skills_hub.do_install", e, exc_info=True)
             pass
     else:
         c.print("[dim]Skill will be available in your next session.[/]")
@@ -675,7 +678,8 @@ def do_uninstall(name: str, console: Optional[Console] = None,
             try:
                 from agent.prompt_builder import clear_skills_system_prompt_cache
                 clear_skills_system_prompt_cache(clear_snapshot=True)
-            except Exception:
+            except Exception as e:
+                logger.warning("Suppressed exception in %s: %s", "skills_hub.do_uninstall", e, exc_info=True)
                 pass
         else:
             c.print("[dim]Change will take effect in your next session.[/]")

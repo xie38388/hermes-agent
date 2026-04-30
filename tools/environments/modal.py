@@ -426,7 +426,8 @@ class ModalEnvironment(BaseEnvironment):
 
         try:
             self._worker.run_coroutine(self._sandbox.terminate.aio(), timeout=15)
-        except Exception:
+        except Exception as e:
+            logger.warning("Suppressed exception in %s: %s", "modal._snapshot", e, exc_info=True)
             pass
         finally:
             self._worker.stop()

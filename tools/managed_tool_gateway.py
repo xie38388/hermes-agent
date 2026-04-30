@@ -44,7 +44,8 @@ def _read_nous_provider_state() -> Optional[dict]:
         nous_provider = providers.get("nous", {})
         if isinstance(nous_provider, dict):
             return nous_provider
-    except Exception:
+    except Exception as e:
+        logger.warning("Suppressed exception in %s: %s", "managed_tool_gateway._read_nous_provider_state", e, exc_info=True)
         pass
     return None
 

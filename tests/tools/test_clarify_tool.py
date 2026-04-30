@@ -106,7 +106,7 @@ class TestClarifyToolChoicesValidation:
         """Non-list choices should return error."""
         result = json.loads(clarify_tool(
             "Question?",
-            choices="not a list",  # type: ignore
+            choices="not a list",  # type: ignore  # complex type not expressible in current type system
             callback=lambda q, c: "ignored"
         ))
         assert "error" in result
@@ -120,7 +120,7 @@ class TestClarifyToolChoicesValidation:
             choices_received.extend(choices or [])
             return "answer"
 
-        clarify_tool("Pick", choices=[1, 2, 3], callback=mock_callback)  # type: ignore
+        clarify_tool("Pick", choices=[1, 2, 3], callback=mock_callback)  # type: ignore  # complex type not expressible in current type system
         assert choices_received == ["1", "2", "3"]
 
 
