@@ -799,7 +799,7 @@ class AgentHelpersMixin:
                 logger.debug("Could not extract API key for debug dump: %s", e)
 
             dump_payload: Dict[str, Any] = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": datetime.datetime.now().isoformat(),
                 "session_id": self.session_id,
                 "reason": reason,
                 "request": {
@@ -837,7 +837,7 @@ class AgentHelpersMixin:
 
                 dump_payload["error"] = error_info
 
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
             dump_file = self.logs_dir / f"request_dump_{self.session_id}_{timestamp}.json"
             dump_file.write_text(
                 json.dumps(dump_payload, ensure_ascii=False, indent=2, default=str),
@@ -913,7 +913,7 @@ class AgentHelpersMixin:
                 "base_url": self.base_url,
                 "platform": self.platform,
                 "session_start": self.session_start.isoformat(),
-                "last_updated": datetime.now().isoformat(),
+                "last_updated": datetime.datetime.now().isoformat(),
                 "system_prompt": self._cached_system_prompt or "",
                 "tools": self.tools or [],
                 "message_count": len(cleaned),

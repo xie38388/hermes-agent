@@ -56,7 +56,7 @@ class ToolLoopMixin:
       - self._subdirectory_hints / self._context_engine_tool_names
     """
 
-    def _cap_delegate_task_calls(tool_calls: list) -> list:
+    def _cap_delegate_task_calls(self, tool_calls: list) -> list:
         """Truncate excess delegate_task calls to max_concurrent_children.
 
         The delegate_tool caps the task list inside a single call, but the
@@ -85,9 +85,7 @@ class ToolLoopMixin:
             delegate_count - max_children, max_children,
         )
         return truncated
-
-    @staticmethod
-    def _deduplicate_tool_calls(tool_calls: list) -> list:
+    def _deduplicate_tool_calls(self, tool_calls: list) -> list:
         """Remove duplicate (tool_name, arguments) pairs within a single turn.
 
         Only the first occurrence of each unique pair is kept.
