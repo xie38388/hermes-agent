@@ -15,6 +15,7 @@ It does NOT own:
   - Context management
 """
 
+from openai import OpenAI
 import logging
 import threading
 from typing import Any, Optional, TYPE_CHECKING
