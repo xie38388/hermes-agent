@@ -37,7 +37,7 @@ try:
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
-    web = None  # type: ignore[assignment]  # optional dependency fallback
+    web = None  # type: ignore[assignment]
 
 from gateway.config import Platform, PlatformConfig
 from gateway.platforms.base import (
@@ -45,78 +45,15 @@ from gateway.platforms.base import (
     SendResult,
     is_network_accessible,
 )
-from gateway.event_mapper import DomainEvent, EventMapper
 
 logger = logging.getLogger(__name__)
 
 # Default settings
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8642
-MAX_PORT_ATTEMPTS = 20  # Self-healing: try up to 20 ports before giving up
 MAX_STORED_RESPONSES = 100
-MAX_REQUEST_BYTES = 50_000_000  # 50 MB limit for POST bodies
+MAX_REQUEST_BYTES = 1_000_000  # 1 MB default limit for POST bodies
 CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
-MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
-MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
-
-
-def _normalize_chat_content(
-    content: Any, *, _max_depth: int = 10, _depth: int = 0,
-) -> str:
-    """Normalize OpenAI chat message content into a plain text string.
-
-    Some clients (Open WebUI, LobeChat, etc.) send content as an array of
-    typed parts instead of a plain string::
-
-        [{"type": "text", "text": "hello"}, {"type": "input_text", "text": "..."}]
-
-    This function flattens those into a single string so the agent pipeline
-    (which expects strings) doesn't choke.
-
-    Defensive limits prevent abuse: recursion depth, list size, and output
-    length are all bounded.
-    """
-    if _depth > _max_depth:
-        return ""
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content[:MAX_NORMALIZED_TEXT_LENGTH] if len(content) > MAX_NORMALIZED_TEXT_LENGTH else content
-
-    if isinstance(content, list):
-        parts: List[str] = []
-        items = content[:MAX_CONTENT_LIST_SIZE] if len(content) > MAX_CONTENT_LIST_SIZE else content
-        for item in items:
-            if isinstance(item, str):
-                if item:
-                    parts.append(item[:MAX_NORMALIZED_TEXT_LENGTH])
-            elif isinstance(item, dict):
-                item_type = str(item.get("type") or "").strip().lower()
-                if item_type in {"text", "input_text", "output_text"}:
-                    text = item.get("text", "")
-                    if text:
-                        try:
-                            parts.append(str(text)[:MAX_NORMALIZED_TEXT_LENGTH])
-                        except Exception as e:
-                            logger.warning("Suppressed exception in %s: %s", "api_server._normalize_chat_content", e, exc_info=True)
-                            pass
-                # Silently skip image_url / other non-text parts
-            elif isinstance(item, list):
-                nested = _normalize_chat_content(item, _max_depth=_max_depth, _depth=_depth + 1)
-                if nested:
-                    parts.append(nested)
-            # Check accumulated size
-            if sum(len(p) for p in parts) >= MAX_NORMALIZED_TEXT_LENGTH:
-                break
-        result = "\n".join(parts)
-        return result[:MAX_NORMALIZED_TEXT_LENGTH] if len(result) > MAX_NORMALIZED_TEXT_LENGTH else result
-
-    # Fallback for unexpected types (int, float, bool, etc.)
-    try:
-        result = str(content)
-        return result[:MAX_NORMALIZED_TEXT_LENGTH] if len(result) > MAX_NORMALIZED_TEXT_LENGTH else result
-    except Exception:
-        return ""
 
 
 def check_api_server_requirements() -> bool:
@@ -223,8 +160,7 @@ class ResponseStore:
         """Close the database connection."""
         try:
             self._conn.close()
-        except Exception as e:
-            logger.warning("Suppressed exception in %s: %s", "api_server.close", e, exc_info=True)
+        except Exception:
             pass
 
     def __len__(self) -> int:
@@ -264,7 +200,7 @@ if AIOHTTP_AVAILABLE:
             response.headers.update(cors_headers)
         return response
 else:
-    cors_middleware = None  # type: ignore[assignment]  # optional dependency fallback
+    cors_middleware = None  # type: ignore[assignment]
 
 
 def _openai_error(message: str, err_type: str = "invalid_request_error", param: str = None, code: str = None) -> Dict[str, Any]:
@@ -293,7 +229,7 @@ if AIOHTTP_AVAILABLE:
                     return web.json_response(_openai_error("Invalid Content-Length header.", code="invalid_content_length"), status=400)
         return await handler(request)
 else:
-    body_limit_middleware = None  # type: ignore[assignment]  # optional dependency fallback
+    body_limit_middleware = None  # type: ignore[assignment]
 
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -310,7 +246,7 @@ if AIOHTTP_AVAILABLE:
             response.headers.setdefault(k, v)
         return response
 else:
-    security_headers_middleware = None  # type: ignore[assignment]  # optional dependency fallback
+    security_headers_middleware = None  # type: ignore[assignment]
 
 
 class _IdempotencyCache:
@@ -397,8 +333,6 @@ class APIServerAdapter(BasePlatformAdapter):
         self._run_streams: Dict[str, "asyncio.Queue[Optional[Dict]]"] = {}
         # Creation timestamps for orphaned-run TTL sweep
         self._run_streams_created: Dict[str, float] = {}
-        # Active run asyncio tasks: run_id -> asyncio.Task (for cancel support)
-        self._run_tasks: Dict[str, "asyncio.Task[None]"] = {}
         self._session_db: Optional[Any] = None  # Lazy-init SessionDB for session continuity
 
     @staticmethod
@@ -432,44 +366,9 @@ class APIServerAdapter(BasePlatformAdapter):
             profile = get_active_profile_name()
             if profile and profile not in ("default", "custom"):
                 return profile
-        except Exception as e:
-            logger.warning("Suppressed exception in %s: %s", "api_server._resolve_model_name", e, exc_info=True)
+        except Exception:
             pass
         return "hermes-agent"
-
-    @staticmethod
-    def _find_available_port(preferred: int, host: str, max_attempts: int = MAX_PORT_ATTEMPTS) -> int:
-        """Try *preferred* first, then preferred+1 … preferred+max_attempts-1.
-
-        Returns the first port that is free (not listening).  Raises RuntimeError
-        if all candidates are occupied.
-
-        This mirrors Manus's ``findAvailablePort()`` self-healing pattern so that
-        multi-instance or dev scenarios don't fail on port conflicts.
-        """
-        for offset in range(max_attempts):
-            candidate = preferred + offset
-            if candidate > 65535:
-                break
-            try:
-                with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
-                    s.settimeout(1)
-                    s.connect((host if host != "0.0.0.0" else "127.0.0.1", candidate))
-                # Connection succeeded → port is in use
-                logger.debug("Port %d in use, trying next", candidate)
-                continue
-            except (ConnectionRefusedError, OSError):
-                # Connection refused → port is free
-                if offset > 0:
-                    logger.info(
-                        "Preferred port %d in use; auto-selected port %d (offset +%d)",
-                        preferred, candidate, offset,
-                    )
-                return candidate
-        raise RuntimeError(
-            f"All {max_attempts} ports ({preferred}–{preferred + max_attempts - 1}) are in use. "
-            f"Free a port or set a different base port via API_SERVER_PORT."
-        )
 
     def _cors_headers_for_origin(self, origin: str) -> Optional[Dict[str, str]]:
         """Return CORS headers for an allowed browser origin."""
@@ -555,7 +454,6 @@ class APIServerAdapter(BasePlatformAdapter):
         session_id: Optional[str] = None,
         stream_delta_callback=None,
         tool_progress_callback=None,
-        extra_mcp_servers: Optional[Dict[str, dict]] = None,
     ) -> Any:
         """
         Create an AIAgent instance using the gateway's runtime config.
@@ -568,17 +466,6 @@ class APIServerAdapter(BasePlatformAdapter):
         from run_agent import AIAgent
         from gateway.run import _resolve_runtime_agent_kwargs, _resolve_gateway_model, _load_gateway_config
         from hermes_cli.tools_config import _get_platform_tools
-        # Register per-run MCP servers before resolving tools
-        if extra_mcp_servers:
-            try:
-                from tools.mcp_tool import register_mcp_servers
-                registered = register_mcp_servers(extra_mcp_servers)
-                logger.info(
-                    "[api_server] Registered %d per-run MCP tool(s) from %d server(s)",
-                    len(registered), len(extra_mcp_servers),
-                )
-            except Exception as exc:
-                logger.warning("[api_server] Failed to register per-run MCP servers: %s", exc)
 
         runtime_kwargs = _resolve_runtime_agent_kwargs()
         model = _resolve_gateway_model()
@@ -666,7 +553,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         for msg in messages:
             role = msg.get("role", "")
-            content = _normalize_chat_content(msg.get("content", ""))
+            content = msg.get("content", "")
             if role == "system":
                 # Accumulate system messages
                 if system_prompt is None:
@@ -758,22 +645,36 @@ class APIServerAdapter(BasePlatformAdapter):
                     _stream_q.put(delta)
 
             def _on_tool_progress(event_type, name, preview, args, **kwargs):
-                """Send tool progress as a separate SSE event via EventMapper.
-                Uses the anti-corruption layer to construct domain events and
-                map them to transport-specific payloads.  See #6972.
+                """Send tool progress as a separate SSE event.
+
+                Previously, progress markers like ``⏰ list`` were injected
+                directly into ``delta.content``.  OpenAI-compatible frontends
+                (Open WebUI, LobeChat, …) store ``delta.content`` verbatim as
+                the assistant message and send it back on subsequent requests.
+                After enough turns the model learns to *emit* the markers as
+                plain text instead of issuing real tool calls — silently
+                hallucinating tool results.  See #6972.
+
+                The fix: push a tagged tuple ``("__tool_progress__", payload)``
+                onto the stream queue.  The SSE writer emits it as a custom
+                ``event: hermes.tool.progress`` line that compliant frontends
+                can render for UX but will *not* persist into conversation
+                history.  Clients that don't understand the custom event type
+                silently ignore it per the SSE specification.
                 """
                 if event_type != "tool.started":
                     return
                 if name.startswith("_"):
                     return
-                domain_evt = DomainEvent.tool_started(tool_name=name, preview=preview, args=args)
-                sse_payload = EventMapper.to_tool_progress_sse(domain_evt)
-                if sse_payload is not None:
-                    # Enrich with emoji for chat completions display
-                    from agent.display import get_tool_emoji
-                    sse_payload["emoji"] = get_tool_emoji(name)
-                    sse_payload["label"] = preview or name
-                    _stream_q.put(("__tool_progress__", sse_payload))
+                from agent.display import get_tool_emoji
+                emoji = get_tool_emoji(name)
+                label = preview or name
+                _stream_q.put(("__tool_progress__", {
+                    "tool": name,
+                    "emoji": emoji,
+                    "label": label,
+                }))
+
             # Start agent in background.  agent_ref is a mutable container
             # so the SSE writer can interrupt the agent on client disconnect.
             agent_ref = [None]
@@ -892,9 +793,13 @@ class APIServerAdapter(BasePlatformAdapter):
 
             # Helper — route a queue item to the correct SSE event.
             async def _emit(item):
-                """Write a single queue item to the SSE stream via EventMapper.
-                Plain strings become ``DomainEvent.stream_chunk`` -> chat chunk.
-                Tagged tuples become ``hermes.tool.progress`` custom SSE events.
+                """Write a single queue item to the SSE stream.
+
+                Plain strings are sent as normal ``delta.content`` chunks.
+                Tagged tuples ``("__tool_progress__", payload)`` are sent
+                as a custom ``event: hermes.tool.progress`` SSE event so
+                frontends can display them without storing the markers in
+                conversation history.  See #6972.
                 """
                 if isinstance(item, tuple) and len(item) == 2 and item[0] == "__tool_progress__":
                     event_data = json.dumps(item[1])
@@ -902,10 +807,12 @@ class APIServerAdapter(BasePlatformAdapter):
                         f"event: hermes.tool.progress\ndata: {event_data}\n\n".encode()
                     )
                 else:
-                    domain_evt = DomainEvent.stream_chunk(content=item)
-                    chunk = EventMapper.to_chat_chunk(domain_evt, completion_id, model, created)
-                    if chunk is not None:
-                        await response.write(f"data: {json.dumps(chunk)}\n\n".encode())
+                    content_chunk = {
+                        "id": completion_id, "object": "chat.completion.chunk",
+                        "created": created, "model": model,
+                        "choices": [{"index": 0, "delta": {"content": item}, "finish_reason": None}],
+                    }
+                    await response.write(f"data: {json.dumps(content_chunk)}\n\n".encode())
                 return time.monotonic()
 
             # Stream content chunks as they arrive from the agent
@@ -940,21 +847,21 @@ class APIServerAdapter(BasePlatformAdapter):
             try:
                 result, agent_usage = await agent_task
                 usage = agent_usage or usage
-            except Exception as e:
-                logger.warning("Suppressed exception in %s: %s", "api_server._emit", e, exc_info=True)
+            except Exception:
                 pass
 
-            # Finish chunk — via EventMapper anti-corruption layer
-            domain_evt = DomainEvent.stream_done()
-            finish_chunk = EventMapper.to_chat_chunk(domain_evt, completion_id, model, created)
-            if finish_chunk is not None:
-                # Merge usage info (transport concern, not in domain event)
-                finish_chunk["usage"] = {
+            # Finish chunk
+            finish_chunk = {
+                "id": completion_id, "object": "chat.completion.chunk",
+                "created": created, "model": model,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {
                     "prompt_tokens": usage.get("input_tokens", 0),
                     "completion_tokens": usage.get("output_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
-                }
-                await response.write(f"data: {json.dumps(finish_chunk)}\n\n".encode())
+                },
+            }
+            await response.write(f"data: {json.dumps(finish_chunk)}\n\n".encode())
             await response.write(b"data: [DONE]\n\n")
         except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
             # Client disconnected mid-stream.  Interrupt the agent so it
@@ -964,8 +871,7 @@ class APIServerAdapter(BasePlatformAdapter):
             if agent is not None:
                 try:
                     agent.interrupt("SSE client disconnected")
-                except Exception as e:
-                    logger.warning("Suppressed exception in %s: %s", "api_server._emit", e, exc_info=True)
+                except Exception:
                     pass
             if not agent_task.done():
                 agent_task.cancel()
@@ -1020,7 +926,18 @@ class APIServerAdapter(BasePlatformAdapter):
                     input_messages.append({"role": "user", "content": item})
                 elif isinstance(item, dict):
                     role = item.get("role", "user")
-                    content = _normalize_chat_content(item.get("content", ""))
+                    content = item.get("content", "")
+                    # Handle content that may be a list of content parts
+                    if isinstance(content, list):
+                        text_parts = []
+                        for part in content:
+                            if isinstance(part, dict) and part.get("type") == "input_text":
+                                text_parts.append(part.get("text", ""))
+                            elif isinstance(part, dict) and part.get("type") == "output_text":
+                                text_parts.append(part.get("text", ""))
+                            elif isinstance(part, str):
+                                text_parts.append(part)
+                        content = "\n".join(text_parts)
                     input_messages.append({"role": role, "content": content})
         else:
             return web.json_response(_openai_error("'input' must be a string or array"), status=400)
@@ -1434,39 +1351,6 @@ class APIServerAdapter(BasePlatformAdapter):
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
-
-    async def _handle_job_history(self, request: "web.Request") -> "web.Response":
-        """GET /api/jobs/{job_id}/history — get execution history for a cron job."""
-        auth_err = self._check_auth(request)
-        if auth_err:
-            return auth_err
-        cron_err = self._check_jobs_available()
-        if cron_err:
-            return cron_err
-        job_id, id_err = self._check_job_id(request)
-        if id_err:
-            return id_err
-        try:
-            from pathlib import Path
-            output_dir = Path.home() / ".hermes" / "cron" / "output" / job_id
-            history = []
-            if output_dir.exists():
-                limit = int(request.query.get("limit", "20"))
-                limit = min(max(limit, 1), 100)
-                for f in sorted(output_dir.glob("*.md"), reverse=True)[:limit]:
-                    try:
-                        content_text = f.read_text(encoding="utf-8")[:10000]
-                    except Exception:
-                        content_text = "(unreadable)"
-                    history.append({
-                        "timestamp": f.stem,
-                        "content": content_text,
-                        "size_bytes": f.stat().st_size,
-                    })
-            return web.json_response({"job_id": job_id, "history": history, "count": len(history)})
-        except Exception as e:
-            return web.json_response({"error": str(e)}, status=500)
-
     # ------------------------------------------------------------------
     # Output extraction helper
     # ------------------------------------------------------------------
@@ -1558,7 +1442,7 @@ class APIServerAdapter(BasePlatformAdapter):
             result = agent.run_conversation(
                 user_message=user_message,
                 conversation_history=conversation_history,
-                task_id=session_id or "default",
+                task_id="default",
             )
             usage = {
                 "input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
@@ -1573,8 +1457,8 @@ class APIServerAdapter(BasePlatformAdapter):
     # /v1/runs — structured event streaming
     # ------------------------------------------------------------------
 
-    _MAX_CONCURRENT_RUNS = 50  # Prevent unbounded resource allocation
-    _RUN_STREAM_TTL = 120  # seconds before orphaned runs are swept
+    _MAX_CONCURRENT_RUNS = 10  # Prevent unbounded resource allocation
+    _RUN_STREAM_TTL = 300  # seconds before orphaned runs are swept
 
     def _make_run_event_callback(self, run_id: str, loop: "asyncio.AbstractEventLoop"):
         """Return a tool_progress_callback that pushes structured events to the run's SSE queue."""
@@ -1584,35 +1468,37 @@ class APIServerAdapter(BasePlatformAdapter):
                 return
             try:
                 loop.call_soon_threadsafe(q.put_nowait, event)
-            except Exception as e:
-                logger.warning("Suppressed exception in %s: %s", "api_server._push", e, exc_info=True)
+            except Exception:
                 pass
 
         def _callback(event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs):
-            logger.info('[EVENT_CB] event_type=%s tool=%s run=%s kwargs_keys=%s', event_type, tool_name, run_id, list(kwargs.keys()))
-            if event_type == "tool.completed" and tool_name == "image_generate":
-                logger.info('[IMAGE_DEBUG] is_error=%s result_preview=%s', kwargs.get('is_error'), str(kwargs.get('result', ''))[:500])
-
-            # --- EventMapper anti-corruption layer ---
-            # Domain events are constructed here; transport formatting is delegated to EventMapper.
-            domain_event = None
+            ts = time.time()
             if event_type == "tool.started":
-                domain_event = DomainEvent.tool_started(tool_name=tool_name, preview=preview, args=args)
+                _push({
+                    "event": "tool.started",
+                    "run_id": run_id,
+                    "timestamp": ts,
+                    "tool": tool_name,
+                    "preview": preview,
+                })
             elif event_type == "tool.completed":
-                domain_event = DomainEvent.tool_completed(
-                    tool_name=tool_name,
-                    duration=kwargs.get("duration", 0),
-                    is_error=kwargs.get("is_error", False),
-                    result=str(kwargs["result"]) if kwargs.get("result") is not None else None,
-                    args=kwargs.get("args"),
-                )
+                _push({
+                    "event": "tool.completed",
+                    "run_id": run_id,
+                    "timestamp": ts,
+                    "tool": tool_name,
+                    "duration": round(kwargs.get("duration", 0), 3),
+                    "error": kwargs.get("is_error", False),
+                })
             elif event_type == "reasoning.available":
-                domain_event = DomainEvent.reasoning_available(text=preview or "")
+                _push({
+                    "event": "reasoning.available",
+                    "run_id": run_id,
+                    "timestamp": ts,
+                    "text": preview or "",
+                })
             # _thinking and subagent_progress are intentionally not forwarded
 
-            if domain_event is not None:
-                sse_payload = EventMapper.to_run_event(domain_event, run_id=run_id)
-                _push(sse_payload)
         return _callback
 
     async def _handle_runs(self, request: "web.Request") -> "web.Response":
@@ -1660,8 +1546,7 @@ class APIServerAdapter(BasePlatformAdapter):
                     "timestamp": time.time(),
                     "delta": delta,
                 })
-            except Exception as e:
-                logger.warning("Suppressed exception in %s: %s", "api_server._text_cb", e, exc_info=True)
+            except Exception:
                 pass
 
         instructions = body.get("instructions")
@@ -1711,15 +1596,6 @@ class APIServerAdapter(BasePlatformAdapter):
 
         session_id = body.get("session_id") or run_id
         ephemeral_system_prompt = instructions
-        # Per-run MCP servers: allows callers to inject user-specific MCP
-        # server URLs (e.g., per-user Composio MCP endpoints) so each run
-        # uses the correct user's tool connections.
-        per_run_mcp = body.get("mcp_servers")
-        if per_run_mcp and not isinstance(per_run_mcp, dict):
-            return web.json_response(
-                _openai_error("'mcp_servers' must be a dict of {name: {url: ...}}"),
-                status=400,
-            )
 
         async def _run_and_close():
             try:
@@ -1728,13 +1604,12 @@ class APIServerAdapter(BasePlatformAdapter):
                     session_id=session_id,
                     stream_delta_callback=_text_cb,
                     tool_progress_callback=event_cb,
-                    extra_mcp_servers=per_run_mcp,
                 )
                 def _run_sync():
                     r = agent.run_conversation(
                         user_message=user_message,
                         conversation_history=conversation_history,
-                        task_id=session_id or "default",
+                        task_id="default",
                     )
                     u = {
                         "input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
@@ -1761,15 +1636,13 @@ class APIServerAdapter(BasePlatformAdapter):
                         "timestamp": time.time(),
                         "error": str(exc),
                     })
-                except Exception as e:
-                    logger.warning("Suppressed exception in %s: %s", "api_server._run_sync", e, exc_info=True)
+                except Exception:
                     pass
             finally:
                 # Sentinel: signal SSE stream to close
                 try:
                     q.put_nowait(None)
-                except Exception as e:
-                    logger.warning("Suppressed exception in %s: %s", "api_server._run_sync", e, exc_info=True)
+                except Exception:
                     pass
 
         task = asyncio.create_task(_run_and_close())
@@ -1781,46 +1654,6 @@ class APIServerAdapter(BasePlatformAdapter):
             task.add_done_callback(self._background_tasks.discard)
 
         return web.json_response({"run_id": run_id, "status": "started"}, status=202)
-
-
-    async def _handle_cancel_run(self, request: "web.Request") -> "web.Response":
-        """POST /v1/runs/{run_id}/cancel — Cancel a running agent task."""
-        auth_err = self._check_auth(request)
-        if auth_err:
-            return auth_err
-        run_id = request.match_info["run_id"]
-        task = self._run_tasks.get(run_id)
-        q = self._run_streams.get(run_id)
-        if not task and not q:
-            return web.json_response(
-                _openai_error(f"Run not found: {run_id}", code="run_not_found"),
-                status=404,
-            )
-        # Cancel the asyncio task (will raise CancelledError in _run_and_close)
-        if task and not task.done():
-            task.cancel()
-        # Push a cancelled event + sentinel to the SSE queue
-        if q:
-            try:
-                q.put_nowait({
-                    "event": "run.cancelled",
-                    "run_id": run_id,
-                    "timestamp": time.time(),
-                })
-            except Exception as e:
-                logger.warning("Suppressed exception in %s: %s", "api_server._handle_cancel_run", e, exc_info=True)
-                pass
-            try:
-                q.put_nowait(None)  # sentinel to close SSE stream
-            except Exception as e:
-                logger.warning("Suppressed exception in %s: %s", "api_server._handle_cancel_run", e, exc_info=True)
-                pass
-        # Cleanup
-        self._run_tasks.pop(run_id, None)
-        self._run_streams.pop(run_id, None)
-        self._run_streams_created.pop(run_id, None)
-        logger.info("[api_server] Run %s cancelled by client", run_id)
-        return web.json_response({"run_id": run_id, "status": "cancelled"})
 
     async def _handle_run_events(self, request: "web.Request") -> "web.StreamResponse":
         """GET /v1/runs/{run_id}/events — SSE stream of structured agent lifecycle events."""
@@ -1871,98 +1704,6 @@ class APIServerAdapter(BasePlatformAdapter):
 
         return response
 
-
-    async def _handle_vnc_ws(self, request: "web.Request") -> "web.WebSocketResponse":
-        """GET /v1/vnc/ws — WebSocket proxy to local websockify (VNC)."""
-        auth_err = self._check_auth(request)
-        if auth_err:
-            return auth_err
-
-        import aiohttp as _aiohttp
-
-        ws_server = web.WebSocketResponse(protocols=["binary"])
-        await ws_server.prepare(request)
-
-        # Ensure Camofox has an active tab for VNC viewing
-        try:
-            async with _aiohttp.ClientSession() as _prep_session:
-                # Check if there are active tabs
-                _health = await _prep_session.get("http://127.0.0.1:9377/health", timeout=_aiohttp.ClientTimeout(total=3))
-                _health_data = await _health.json()
-                if _health_data.get("activeTabs", 0) == 0:
-                    # No active tabs — open a blank tab so VNC shows something
-                    _url = request.query.get("url", "about:blank")
-                    logger.info("[api_server] VNC prepare: no active tabs, opening %s", _url)
-                    await _prep_session.post(
-                        "http://127.0.0.1:9377/tabs",
-                        json={"userId": "vnc-takeover", "sessionKey": "vnc", "url": _url},
-                        timeout=_aiohttp.ClientTimeout(total=15),
-                    )
-                    # Wait for page to load, then resize window to fill Xvfb
-                    import asyncio as _asyncio
-                    await _asyncio.sleep(3)
-                    import subprocess as _sp
-                    _sp.Popen(["/bin/bash", "/home/ubuntu/resize_windows.sh"])
-                    logger.info("[api_server] VNC prepare: tab opened and resize triggered")
-        except Exception as _prep_err:
-            logger.warning("[api_server] VNC prepare: failed to ensure tab: %s", _prep_err)
-
-        # Connect to local websockify
-        vnc_url = "ws://127.0.0.1:6080/"
-        try:
-            session = _aiohttp.ClientSession()
-            ws_client = await session.ws_connect(vnc_url, protocols=["binary"])
-        except Exception as exc:
-            logger.error("[api_server] VNC proxy: cannot connect to websockify: %s", exc)
-            await ws_server.close(code=1011, message=b"VNC backend unavailable")
-            return ws_server
-
-        async def _forward_server_to_client():
-            try:
-                async for msg in ws_client:
-                    if msg.type == _aiohttp.WSMsgType.BINARY:
-                        await ws_server.send_bytes(msg.data)
-                    elif msg.type == _aiohttp.WSMsgType.TEXT:
-                        await ws_server.send_str(msg.data)
-                    elif msg.type in (_aiohttp.WSMsgType.CLOSE, _aiohttp.WSMsgType.CLOSING, _aiohttp.WSMsgType.CLOSED):
-                        break
-                    elif msg.type == _aiohttp.WSMsgType.ERROR:
-                        break
-            except Exception as e:
-                logger.warning("Suppressed exception in %s: %s", "api_server._forward_server_to_client", e, exc_info=True)
-                pass
-            finally:
-                if not ws_server.closed:
-                    await ws_server.close()
-
-        async def _forward_client_to_server():
-            try:
-                async for msg in ws_server:
-                    if msg.type == _aiohttp.WSMsgType.BINARY:
-                        await ws_client.send_bytes(msg.data)
-                    elif msg.type == _aiohttp.WSMsgType.TEXT:
-                        await ws_client.send_str(msg.data)
-                    elif msg.type in (_aiohttp.WSMsgType.CLOSE, _aiohttp.WSMsgType.CLOSING, _aiohttp.WSMsgType.CLOSED):
-                        break
-                    elif msg.type == _aiohttp.WSMsgType.ERROR:
-                        break
-            except Exception as e:
-                logger.warning("Suppressed exception in %s: %s", "api_server._forward_client_to_server", e, exc_info=True)
-                pass
-            finally:
-                if not ws_client.closed:
-                    await ws_client.close()
-                await session.close()
-
-        # Run both directions concurrently
-        await asyncio.gather(
-            _forward_server_to_client(),
-            _forward_client_to_server(),
-            return_exceptions=True,
-        )
-
-        return ws_server
-
     async def _sweep_orphaned_runs(self) -> None:
         """Periodically clean up run streams that were never consumed."""
         while True:
@@ -1979,27 +1720,317 @@ class APIServerAdapter(BasePlatformAdapter):
                 self._run_streams_created.pop(run_id, None)
 
     # ------------------------------------------------------------------
-    # BasePlatformAdapter interface
+    # File System Access API
     # ------------------------------------------------------------------
 
+    _ALLOWED_BASE_DIRS = ("/home/ubuntu/",)
+    _MAX_TREE_DEPTH = 10
+    _MAX_TREE_FILES = 5000
+    _MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB read limit
+    _IGNORED_DIRS = {
+        "node_modules", ".git", "dist", "build", ".next", "__pycache__",
+        ".pnpm-store", ".cache", "coverage", ".turbo", ".nuxt", ".output",
+        ".manus-logs",
+    }
+    _IGNORED_FILES = {".DS_Store", "Thumbs.db"}
 
-    # ---- Static file serving for generated images ----
-    GENERATED_FILES_DIR = "/tmp/hermes_generated"
+    def _validate_path(self, path: str) -> Optional[str]:
+        """Validate and resolve path. Returns resolved path or None if invalid."""
+        if not path:
+            return None
+        resolved = os.path.realpath(path)
+        for base in self._ALLOWED_BASE_DIRS:
+            if resolved.startswith(base) or resolved == base.rstrip("/"):
+                return resolved
+        return None
 
-    async def _handle_serve_file(self, request: web.Request) -> web.Response:
-        """Serve generated files (images, etc.) from the local temp directory."""
-        filename = request.match_info.get("filename", "")
-        if not filename or ".." in filename or "/" in filename:
-            return web.json_response({"error": "Invalid filename"}, status=400)
-        filepath = os.path.join(self.GENERATED_FILES_DIR, filename)
-        if not os.path.isfile(filepath):
-            return web.json_response({"error": "File not found"}, status=404)
-        # Guess content type
-        ext = os.path.splitext(filename)[1].lower()
-        ct_map = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                   ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
-        content_type = ct_map.get(ext, "application/octet-stream")
-        return web.FileResponse(filepath, headers={"Content-Type": content_type, "Cache-Control": "public, max-age=86400"})
+    async def _handle_file_tree(self, request: "web.Request") -> "web.Response":
+        """GET /v1/files/tree?path=<dir> — Recursive directory listing."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        dir_path = request.query.get("path", "")
+        resolved = self._validate_path(dir_path)
+        if resolved is None:
+            return web.json_response(
+                {"error": {"message": f"Invalid or disallowed path: {dir_path}", "code": "invalid_path"}},
+                status=400,
+            )
+        if not os.path.isdir(resolved):
+            return web.json_response(
+                {"error": {"message": f"Not a directory: {dir_path}", "code": "not_directory"}},
+                status=404,
+            )
+
+        files: List[Dict[str, Any]] = []
+        base_len = len(resolved.rstrip("/")) + 1
+
+        def _scan(current: str, depth: int) -> None:
+            if depth > self._MAX_TREE_DEPTH or len(files) >= self._MAX_TREE_FILES:
+                return
+            try:
+                entries = sorted(os.scandir(current), key=lambda e: e.name)
+            except PermissionError:
+                return
+            for entry in entries:
+                if entry.name in self._IGNORED_FILES:
+                    continue
+                if entry.is_dir(follow_symlinks=False):
+                    if entry.name in self._IGNORED_DIRS:
+                        continue
+                    _scan(entry.path, depth + 1)
+                elif entry.is_file(follow_symlinks=False):
+                    try:
+                        stat = entry.stat()
+                        rel_path = entry.path[base_len:]
+                        files.append({
+                            "path": rel_path,
+                            "name": entry.name,
+                            "size": stat.st_size,
+                        })
+                    except OSError:
+                        pass
+
+        # Run blocking I/O in executor to avoid blocking the event loop
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _scan, resolved, 0)
+
+        return web.json_response({"files": files, "base_path": resolved})
+
+    async def _handle_file_read(self, request: "web.Request") -> "web.Response":
+        """GET /v1/files/read?path=<file> — Read file content."""
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        file_path = request.query.get("path", "")
+        resolved = self._validate_path(file_path)
+        if resolved is None:
+            return web.json_response(
+                {"error": {"message": f"Invalid or disallowed path: {file_path}", "code": "invalid_path"}},
+                status=400,
+            )
+        if not os.path.isfile(resolved):
+            return web.json_response(
+                {"error": {"message": f"Not a file: {file_path}", "code": "not_file"}},
+                status=404,
+            )
+
+        try:
+            stat = os.stat(resolved)
+        except OSError as e:
+            return web.json_response(
+                {"error": {"message": f"Cannot stat file: {e}", "code": "stat_error"}},
+                status=500,
+            )
+
+        if stat.st_size > self._MAX_FILE_SIZE:
+            return web.json_response(
+                {"error": {"message": f"File too large: {stat.st_size} bytes (max {self._MAX_FILE_SIZE})", "code": "file_too_large"}},
+                status=413,
+            )
+
+        def _read() -> str:
+            with open(resolved, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()
+
+        loop = asyncio.get_event_loop()
+        try:
+            content = await loop.run_in_executor(None, _read)
+        except Exception as e:
+            return web.json_response(
+                {"error": {"message": f"Failed to read file: {e}", "code": "read_error"}},
+                status=500,
+            )
+
+        return web.json_response({"content": content, "path": resolved, "size": stat.st_size})
+
+    async def _handle_file_batch_read(self, request: "web.Request") -> "web.Response":
+        """POST /v1/files/batch-read — Read multiple files at once.
+
+        Body: {"paths": ["<abs_path>", ...], "max_size": <optional int>}
+        Returns: {"files": {"<path>": {"content": "...", "size": N} | {"error": "..."}}, ...}
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(
+                {"error": {"message": "Invalid JSON body", "code": "invalid_body"}},
+                status=400,
+            )
+
+        paths = body.get("paths", [])
+        if not isinstance(paths, list) or len(paths) == 0:
+            return web.json_response(
+                {"error": {"message": "paths must be a non-empty array", "code": "invalid_paths"}},
+                status=400,
+            )
+        if len(paths) > 200:
+            return web.json_response(
+                {"error": {"message": "Too many paths (max 200)", "code": "too_many_paths"}},
+                status=400,
+            )
+
+        max_size = body.get("max_size", self._MAX_FILE_SIZE)
+        results: Dict[str, Any] = {}
+
+        def _batch_read() -> Dict[str, Any]:
+            out: Dict[str, Any] = {}
+            for p in paths:
+                resolved = self._validate_path(p)
+                if resolved is None:
+                    out[p] = {"error": "invalid_path"}
+                    continue
+                if not os.path.isfile(resolved):
+                    out[p] = {"error": "not_file"}
+                    continue
+                try:
+                    st = os.stat(resolved)
+                    if st.st_size > max_size:
+                        out[p] = {"error": f"file_too_large ({st.st_size} bytes)"}
+                        continue
+                    with open(resolved, "r", encoding="utf-8", errors="replace") as f:
+                        out[p] = {"content": f.read(), "size": st.st_size}
+                except Exception as e:
+                    out[p] = {"error": str(e)}
+            return out
+
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(None, _batch_read)
+
+        return web.json_response({"files": results})
+
+    # ------------------------------------------------------------------
+    # File Watcher (mtime polling) endpoint
+    # ------------------------------------------------------------------
+
+    async def _handle_file_mtime(self, request: "web.Request") -> "web.Response":
+        """GET /v1/files/mtime?path=<dir> — Return max mtime of all project files.
+        Used by Hermes Backend to detect non-Agent file changes via polling.
+        Returns: {"max_mtime": <unix_timestamp_float>, "file_count": N}
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        dir_path = request.query.get("path", "")
+        resolved = self._validate_path(dir_path)
+        if resolved is None:
+            return web.json_response(
+                {"error": {"message": "Invalid or disallowed path", "code": "invalid_path"}},
+                status=400,
+            )
+        if not os.path.isdir(resolved):
+            return web.json_response(
+                {"error": {"message": "Path is not a directory", "code": "not_directory"}},
+                status=400,
+            )
+
+        def _scan_mtime() -> dict:
+            max_mt = 0.0
+            count = 0
+            try:
+                for root, dirs, files in os.walk(resolved):
+                    dirs[:] = [d for d in dirs if d not in self._IGNORED_DIRS and not d.startswith(".")]
+                    for fname in files:
+                        if fname in self._IGNORED_FILES:
+                            continue
+                        try:
+                            st = os.stat(os.path.join(root, fname))
+                            if st.st_mtime > max_mt:
+                                max_mt = st.st_mtime
+                            count += 1
+                        except OSError:
+                            continue
+            except OSError:
+                pass
+            return {"max_mtime": max_mt, "file_count": count}
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _scan_mtime)
+        return web.json_response(result)
+
+    # ------------------------------------------------------------------
+    # Checkpoint / Diff endpoints
+    # ------------------------------------------------------------------
+
+    async def _handle_file_checkpoints(self, request: "web.Request") -> "web.Response":
+        """GET /v1/files/checkpoints?path=<dir> — List available checkpoints.
+        Returns: {"checkpoints": [{hash, short_hash, timestamp, reason, files_changed, insertions, deletions}]}
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        dir_path = request.query.get("path", "")
+        resolved = self._validate_path(dir_path)
+        if resolved is None:
+            return web.json_response(
+                {"error": {"message": "Invalid or disallowed path", "code": "invalid_path"}},
+                status=400,
+            )
+
+        def _list_checkpoints() -> dict:
+            try:
+                import sys
+                agent_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                if agent_root not in sys.path:
+                    sys.path.insert(0, agent_root)
+                from tools.checkpoint_manager import CheckpointManager
+                mgr = CheckpointManager(enabled=True, max_snapshots=50)
+                checkpoints = mgr.list_checkpoints(resolved)
+                return {"checkpoints": checkpoints}
+            except Exception as e:
+                return {"checkpoints": [], "error": str(e)}
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _list_checkpoints)
+        return web.json_response(result)
+
+    async def _handle_file_diff(self, request: "web.Request") -> "web.Response":
+        """GET /v1/files/diff?path=<dir>&commit=<hash> — Get diff between checkpoint and current.
+        Returns: {"success": bool, "stat": "...", "diff": "...", "error": "..."}
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        dir_path = request.query.get("path", "")
+        commit_hash = request.query.get("commit", "")
+        resolved = self._validate_path(dir_path)
+        if resolved is None:
+            return web.json_response(
+                {"error": {"message": "Invalid or disallowed path", "code": "invalid_path"}},
+                status=400,
+            )
+        if not commit_hash:
+            return web.json_response(
+                {"error": {"message": "commit parameter is required", "code": "missing_commit"}},
+                status=400,
+            )
+
+        def _compute_diff() -> dict:
+            try:
+                import sys
+                agent_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                if agent_root not in sys.path:
+                    sys.path.insert(0, agent_root)
+                from tools.checkpoint_manager import CheckpointManager
+                mgr = CheckpointManager(enabled=True, max_snapshots=50)
+                result = mgr.diff(resolved, commit_hash)
+                return result
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _compute_diff)
+        return web.json_response(result)
+
+    # ------------------------------------------------------------------
+    # BasePlatformAdapter interface
+    # ------------------------------------------------------------------
 
     async def connect(self) -> bool:
         """Start the aiohttp web server."""
@@ -2009,7 +2040,7 @@ class APIServerAdapter(BasePlatformAdapter):
 
         try:
             mws = [mw for mw in (cors_middleware, body_limit_middleware, security_headers_middleware) if mw is not None]
-            self._app = web.Application(middlewares=mws, client_max_size=50 * 1024 * 1024)
+            self._app = web.Application(middlewares=mws)
             self._app["api_server_adapter"] = self
             self._app.router.add_get("/health", self._handle_health)
             self._app.router.add_get("/v1/health", self._handle_health)
@@ -2027,13 +2058,16 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/api/jobs/{job_id}/pause", self._handle_pause_job)
             self._app.router.add_post("/api/jobs/{job_id}/resume", self._handle_resume_job)
             self._app.router.add_post("/api/jobs/{job_id}/run", self._handle_run_job)
-            self._app.router.add_get("/api/jobs/{job_id}/history", self._handle_job_history)
             # Structured event streaming
             self._app.router.add_post("/v1/runs", self._handle_runs)
             self._app.router.add_get("/v1/runs/{run_id}/events", self._handle_run_events)
-            self._app.router.add_get("/v1/vnc/ws", self._handle_vnc_ws)
-            self._app.router.add_get("/v1/files/{filename}", self._handle_serve_file)
-            self._app.router.add_post("/v1/runs/{run_id}/cancel", self._handle_cancel_run)
+            # File system access API
+            self._app.router.add_get("/v1/files/tree", self._handle_file_tree)
+            self._app.router.add_get("/v1/files/read", self._handle_file_read)
+            self._app.router.add_post("/v1/files/batch-read", self._handle_file_batch_read)
+            self._app.router.add_get("/v1/files/mtime", self._handle_file_mtime)
+            self._app.router.add_get("/v1/files/checkpoints", self._handle_file_checkpoints)
+            self._app.router.add_get("/v1/files/diff", self._handle_file_diff)
             # Start background sweep to clean up orphaned (unconsumed) run streams
             sweep_task = asyncio.create_task(self._sweep_orphaned_runs())
             try:
@@ -2052,29 +2086,15 @@ class APIServerAdapter(BasePlatformAdapter):
                 )
                 return False
 
-            # Refuse to start network-accessible with a placeholder key.
-            # Ported from openclaw/openclaw#64586.
-            if is_network_accessible(self._host) and self._api_key:
-                try:
-                    from hermes_cli.auth import has_usable_secret
-                    if not has_usable_secret(self._api_key, min_length=8):
-                        logger.error(
-                            "[%s] Refusing to start: API_SERVER_KEY is set to a "
-                            "placeholder value. Generate a real secret "
-                            "(e.g. `openssl rand -hex 32`) and set API_SERVER_KEY "
-                            "before exposing the API server on %s.",
-                            self.name, self._host,
-                        )
-                        return False
-                except ImportError:
-                    pass
-
-            # Self-healing port allocation (mechanism 52) — try up to MAX_PORT_ATTEMPTS ports
+            # Port conflict detection — fail fast if port is already in use
             try:
-                self._port = self._find_available_port(self._port, self._host)
-            except RuntimeError as port_err:
-                logger.error('[%s] %s', self.name, port_err)
+                with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as _s:
+                    _s.settimeout(1)
+                    _s.connect(('127.0.0.1', self._port))
+                logger.error('[%s] Port %d already in use. Set a different port in config.yaml: platforms.api_server.port', self.name, self._port)
                 return False
+            except (ConnectionRefusedError, OSError):
+                pass  # port is free
 
             self._runner = web.AppRunner(self._app)
             await self._runner.setup()
