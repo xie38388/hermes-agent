@@ -2028,6 +2028,53 @@ class APIServerAdapter(BasePlatformAdapter):
         result = await loop.run_in_executor(None, _compute_diff)
         return web.json_response(result)
 
+    async def _handle_file_rollback(self, request: "web.Request") -> "web.Response":
+        """POST /v1/files/rollback — Rollback project to a checkpoint.
+        Body JSON: {"path": "<dir>", "commit_hash": "<hash>", "file_path": "<optional>"}
+        Returns: {"success": bool, "restored_to": "...", "reason": "...", "error": "..."}
+        """
+        auth_err = self._check_auth(request)
+        if auth_err:
+            return auth_err
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response(
+                {"error": {"message": "Invalid JSON body", "code": "invalid_body"}},
+                status=400,
+            )
+        dir_path = body.get("path", "")
+        commit_hash = body.get("commit_hash", "")
+        file_path = body.get("file_path")  # optional — single file restore
+        resolved = self._validate_path(dir_path)
+        if resolved is None:
+            return web.json_response(
+                {"error": {"message": "Invalid or disallowed path", "code": "invalid_path"}},
+                status=400,
+            )
+        if not commit_hash:
+            return web.json_response(
+                {"error": {"message": "commit_hash is required", "code": "missing_commit_hash"}},
+                status=400,
+            )
+
+        def _do_rollback() -> dict:
+            try:
+                import sys
+                agent_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                if agent_root not in sys.path:
+                    sys.path.insert(0, agent_root)
+                from tools.checkpoint_manager import CheckpointManager
+                mgr = CheckpointManager(enabled=True, max_snapshots=50)
+                result = mgr.restore(resolved, commit_hash, file_path=file_path)
+                return result
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, _do_rollback)
+        status_code = 200 if result.get("success") else 400
+        return web.json_response(result, status=status_code)
     # ------------------------------------------------------------------
     # BasePlatformAdapter interface
     # ------------------------------------------------------------------
@@ -2068,6 +2115,7 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_get("/v1/files/mtime", self._handle_file_mtime)
             self._app.router.add_get("/v1/files/checkpoints", self._handle_file_checkpoints)
             self._app.router.add_get("/v1/files/diff", self._handle_file_diff)
+            self._app.router.add_post("/v1/files/rollback", self._handle_file_rollback)
             # Start background sweep to clean up orphaned (unconsumed) run streams
             sweep_task = asyncio.create_task(self._sweep_orphaned_runs())
             try:
